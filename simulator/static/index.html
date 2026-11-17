@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="가상 아이들과 로봇 카메라를 제공하는 SerBot AGV 3D 시뮬레이터">
+  <title>SerBot Playground · 3D 시뮬레이터</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%232c6656'/%3E%3Cpath d='M12 24V14h16v10M15 28h10' fill='none' stroke='%23f7df9e' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">{"imports":{"three":"/vendor/three.module.min.js","three/addons/":"/vendor/"}}</script>
+</head>
+<body>
+<svg class="svg-defs" aria-hidden="true"><defs>
+<symbol id="i-cube" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 5v9l9 5 9-5V8M12 13v9"/></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 6h4l2-3h4l2 3h4v14H4z"/><circle cx="12" cy="13" r="4"/></symbol>
+<symbol id="i-code" viewBox="0 0 24 24"><path d="m7 6-6 6 6 6m10-12 6 6-6 6M14 3l-4 18"/></symbol>
+<symbol id="i-reset" viewBox="0 0 24 24"><path d="M3 10a9 9 0 1 1 1 7M3 3v7h7"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8z"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 4v16M16 4v16"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></symbol>
+<symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol>
+<symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M2 22v-3a7 7 0 0 1 14 0v3M17 4a4 4 0 0 1 0 8m1 3c3 0 5 2 5 5"/></symbol>
+</defs></svg>
+<header class="topbar">
+  <a class="brand" href="/"><span class="brand-mark"><svg><use href="#i-cube"/></svg></span><span>SerBot<span class="brand-light"> Playground</span></span></a>
+  <nav aria-label="화면 선택"><span class="nav-active">시뮬레이터</span><button id="api-open">Python 연결 가이드 <span>↗</span></button></nav>
+  <span id="connection" class="connection"><i></i> 연결 중</span>
+</header>
+<main>
+  <div class="page-heading"><h1>시뮬.</h1><div class="heading-actions"><button id="reset" class="button"><svg><use href="#i-reset"/></svg>환경 초기화</button><button id="pause" class="button primary"><svg><use href="#i-pause"/></svg><span>일시정지</span></button></div></div>
+  <section class="workspace">
+    <aside class="left-panel panel">
+      <div class="section-title"><span>가상 환경</span><span class="tiny-badge">LOCAL</span></div>
+      <div class="room-card"><span class="room-icon">✳</span><div><strong>햇살 놀이실</strong><small>12 × 10 m · 실내 공간</small></div></div>
+      <div class="control-label"><label for="people-count">가상 아이들</label><span id="people-value">5명</span></div>
+      <input id="people-count" aria-label="가상 아이들 수" type="range" min="1" max="8" value="5"><div class="range-ticks"><span>1명</span><span>8명</span></div>
+      <div class="control-label speed-label"><label for="rate">시뮬레이션 속도</label></div>
+      <select id="rate"><option value="0.5">0.5× · 천천히</option><option value="1" selected>1× · 실제 시간</option><option value="2">2× · 빠르게</option><option value="4">4× · 빠르게</option></select>
+      <hr><div class="section-title"><span>무궁화꽃이 피었습니다</span><svg><use href="#i-people"/></svg></div>
+      <div id="game-card" class="game-card" data-phase="ready"><span id="game-stage">게임 대기</span><strong id="game-title">시선에 따라 접근 · 정지</strong><p id="game-detail">로봇이 뒤돌면 접근, 바라보면 정지. 한 명이 터치하면 전원 도망.</p><div class="game-steps"><span data-step="approaching">① 접근 · 정지</span><b>→</b><span data-step="escaping">② 터치 · 도망</span><b>→</b><span data-step="finished">③ 도착</span></div></div>
+      <div class="bulk-actions game-actions"><button id="game-start">게임 시작</button><button id="game-hold" disabled>접근 잠깐 멈춤</button></div>
+      <p class="helper">터치 전에는 아이별 행동을 조절할 수 있어요.</p>
+      <div id="children-list" class="children-list"></div>
+      <div class="note"><span>ⓘ</span><p>터치 전: 로봇 전방의 아이는 정지, 뒤쪽의 아이만 접근. 터치 후: 방향과 관계없이 전원 도망. 로봇 회전은 수동 버튼이나 AI로 제어합니다.</p></div>
+    </aside>
+    <section class="world-panel panel">
+      <div class="viewport-toolbar"><div class="viewport-title"><svg><use href="#i-cube"/></svg><strong>3D 플레이그라운드</strong><span class="live-dot"></span></div><div class="camera-tabs" aria-label="3D 시점"><button data-view="orbit" class="selected">자유 시점</button><button data-view="top">위에서</button><button data-view="robot">로봇 시점</button></div></div>
+      <div id="viewport" class="viewport"><div class="scene-label"><span class="scene-dot"></span> SERBOT AGV <span class="scene-divider">/</span> SIMULATION</div><span id="paused-badge" class="paused-badge" hidden>Ⅱ 일시정지</span><div id="game-announcement" class="game-announcement" hidden></div><div id="loading" class="loading"><span class="loader"></span>3D 공간을 준비하고 있어요</div><div class="scene-bottom"><span id="view-hint">드래그로 회전 · 스크롤로 확대</span><div><label><input id="show-path" type="checkbox" checked> 이동 궤적</label><label><input id="show-fov" type="checkbox" checked> 카메라 시야</label></div></div><div id="speech" class="speech" hidden></div></div>
+      <div class="telemetry"><div><small>위치 X / Z</small><strong id="pose">0.00 / −3.35 <em>m</em></strong></div><div><small>방향</small><strong id="heading">0.0 <em>°</em></strong></div><div><small>이동 속도</small><strong id="velocity">0.00 <em>m/s</em></strong></div><div><small>시뮬레이션 시간</small><strong id="sim-time">00:00.0</strong></div></div>
+      <div class="manual-controls"><span>로봇 수동 테스트</span><div class="jog-buttons"><button data-jog="left" aria-label="왼쪽 회전">↶</button><button data-jog="forward" aria-label="전진">↑</button><button data-jog="backward" aria-label="후진">↓</button><button data-jog="right" aria-label="오른쪽 회전">↷</button></div><button id="robot-stop" class="stop-button"><svg><use href="#i-stop"/></svg>로봇 정지</button></div>
+    </section>
+    <aside class="right-panel">
+      <section class="panel camera-panel"><div class="section-title"><span><svg><use href="#i-camera"/></svg> 로봇 카메라</span><span id="camera-status" class="tiny-badge">준비 중</span></div><div id="camera-view" class="camera-view"><div class="camera-corners"></div><span class="camera-overlay">CAM 01 <span>● RGB</span></span></div><div class="camera-caption"><span>640 × 480 · JPEG / MJPEG</span><span id="camera-fps">— fps</span></div><p class="camera-description">AI에 전달되는 실제 가상 카메라 화면입니다.</p></section>
+      <section class="panel api-card"><div class="section-title"><span><svg><use href="#i-code"/></svg> 내 AI와 연결하기</span><button id="copy-code" title="Python 연결 코드 복사">복사</button></div><p>Python에서 카메라를 읽고,<br>판단 결과를 로봇 동작으로 보내세요.</p><pre><span class="code-purple">from</span> simulator.client <span class="code-purple">import</span> SimRobot
+
+robot = <span class="code-yellow">SimRobot</span>()
+frame = robot.<span class="code-yellow">camera_frame</span>()
+
+<span class="code-comment"># frame을 나만의 AI에 전달</span>
+<span class="code-comment"># 판단 결과로 로봇 제어</span>
+robot.<span class="code-yellow">command_velocity</span>(
+    linear_mps=<span class="code-orange">0.1</span>,
+    seconds=<span class="code-orange">0.5</span>
+)</pre><button id="api-details" class="guide-button">연결 방법 자세히 보기 <span>↗</span></button></section>
+      <section class="sensor-card"><span class="sensor-icon">◉</span><div><small>가상 전방 거리 센서</small><strong id="front-distance">— <em>cm</em></strong></div><span class="sim-label">SIM</span></section>
+    </aside>
+  </section>
+  <section class="panel log-panel"><div class="log-heading"><span class="section-title">이벤트 로그 <span id="log-count" class="log-count">0</span></span><span>환경과 로봇 명령을 기록합니다</span></div><div id="logs" class="logs" aria-live="polite"></div></section>
+  <footer><span><i></i> 가상 센서 · 실제 로봇 연결 없음</span><span>SerBot AGV 형태의 간략 모델 · 동작과 센서는 근사 시뮬레이션</span><label><input id="audio" type="checkbox"> 로봇 음성 듣기</label></footer>
+</main>
+<dialog id="api-dialog"><div class="dialog-top"><span class="eyebrow">CONNECT YOUR AI</span><button id="api-close" aria-label="가이드 닫기">×</button></div><h2>내 Python 프로그램과 연결</h2><p>시뮬레이터 서버와 이 브라우저 탭을 열어 둔 상태로, 저장소 루트에서 AI 프로그램을 실행하세요.</p><h3>1. 가상 카메라 영상 받기</h3><pre>from simulator.client import SimRobot
+import cv2
+import numpy as np
+
+robot = SimRobot()
+jpeg = robot.camera_frame()
+image = cv2.imdecode(
+    np.frombuffer(jpeg, np.uint8),
+    cv2.IMREAD_COLOR
+)
+# image를 직접 만든 AI에 입력하세요.</pre><h3>2. AI의 판단 결과로 로봇 제어</h3><pre># 단위: m/s, rad/s, 초. 양의 회전은 왼쪽.
+robot.command_velocity(linear_mps=0.1, seconds=0.5)
+robot.command_velocity(angular_rps=1.0, seconds=1.0)
+robot.stop()
+robot.say("안녕하세요!")</pre><h3>영상 API</h3><div class="endpoint"><code>GET /api/camera.jpg</code><span>최신 JPEG 프레임</span></div><div class="endpoint"><code>GET /api/camera/stream.mjpg</code><span>OpenCV로 읽는 MJPEG</span></div><div class="endpoint"><code>GET /api/camera/meta</code><span>프레임 번호 · 촬영 시각</span></div><p class="dialog-note">카메라는 이 탭에서 렌더링합니다. 탭이 닫히거나 백그라운드에서 렌더링이 중단되면 영상 API가 503을 반환합니다. 가상 인물은 단순 3D 모델이므로 실제 사람 영상으로 학습한 모델의 인식 성능은 별도로 확인해야 합니다. 상세 API는 simulator/README.md를 확인하세요.</p></dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+<script type="module" src="/app.js"></script>
+</body></html>
