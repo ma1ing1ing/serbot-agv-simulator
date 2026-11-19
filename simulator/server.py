@@ -16,6 +16,7 @@ from urllib.parse import urlsplit, parse_qs
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from simulator.engine import World, number
+from simulator import replay
 
 STATIC = Path(__file__).parent/'static'
 
@@ -96,6 +97,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(state)
         elif path=='/api/session':
             self.send(dict(publisher=self.server.publisher))
+        elif path=='/api/replay':
+            self.send(replay.metadata())
         elif path=='/api/camera/meta':
             self.send(self.server.camera_meta())
         elif path=='/api/camera.jpg':
@@ -188,6 +191,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(w.command(data.get('linear_mps',0),data.get('angular_rps',0),data.get('seconds',.5),data.get('guard',True)))
             elif path=='/api/robot/stop':
                 with w.lock:
+                    w.game['auto_chase']=False
                     w.finish_motion('stopped')
                     w.log('로봇 정지')
                 self.send({'ok':True})
@@ -202,7 +206,18 @@ class Handler(BaseHTTPRequestHandler):
                 w.reset()
                 self.send({'ok':True})
             elif path=='/api/game/start':
-                w.start_game()
+                w.start_game(data.get('mode','tag'),data.get('auto_chase',True),
+                             replay_count=data.get('replay_count',16),clip_id=data.get('clip_id','active'))
+                self.send({'ok':True,'game':w.snapshot()['game']})
+            elif path=='/api/replay/seek':
+                w.seek_replay(data.get('elapsed',0))
+                self.send({'ok':True,'replay':w.snapshot()['replay']})
+            elif path=='/api/game/auto':
+                with w.lock:
+                    if w.game.get('mode')!='tag' or w.game['phase']!='chasing':
+                        raise ValueError('진행 중인 술래잡기에서만 자동 추격을 켤 수 있습니다')
+                    w.finish_motion('superseded')
+                    w.game['auto_chase']=bool(data.get('enabled',True))
                 self.send({'ok':True,'game':w.snapshot()['game']})
             elif path=='/api/game/hold':
                 w.hold_game(data.get('held',True))
@@ -210,8 +225,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path=='/api/world/config':
                 with w.lock:
                     paused=bool(data.get('paused',w.paused))
-                    rate=number(data.get('rate',w.rate),.25,4,'rate')
-                    count=int(number(data.get('count',len(w.children)),1,8,'count'))
+                    rate=number(data.get('rate',w.rate),.25,16 if w.replay is not None else 4,'rate')
+                    count=int(number(data.get('count',len(w.children)),1,16 if w.replay is not None else 8,'count'))
                     if count!=len(w.children):
                         w.set_count(count)
                     w.paused,w.rate=paused,rate

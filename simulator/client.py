@@ -87,12 +87,28 @@ class SimRobot:
     def stop(self):
         return self._request('/api/robot/stop',{})
 
-    def start_game(self):
-        """Reset and start a round; any child's touch makes everyone flee."""
-        return self._request('/api/game/start',{})
+    def start_game(self, mode='tag', *, auto_chase=True):
+        """Start tag (default) or the original 'red_light' game.
+
+        Manual velocity commands and stop() disable automatic robot pursuit.
+        Set auto_chase=False when an external AI will control the robot.
+        """
+        return self._request('/api/game/start',{'mode':mode,'auto_chase':auto_chase})
+
+    def auto_chase(self, enabled=True):
+        """Enable/disable the rule-based robot demonstration during tag."""
+        return self._request('/api/game/auto',{'enabled':enabled})
+
+    def start_replay(self, *, count=16, clip_id='active'):
+        """Replay synchronized Playground A positions, fitted to the virtual room."""
+        return self._request('/api/game/start',dict(mode='playground_a',replay_count=count,clip_id=clip_id))
+
+    def seek_replay(self, elapsed):
+        """Seek by source playback offset; does not infer tagger/runner roles."""
+        return self._request('/api/replay/seek',{'elapsed':elapsed})
 
     def hold_children(self, held=True):
-        """Pause/resume approaching children before the tag; never overrides fleeing."""
+        """Hold/resume tag participants, or approaching children in red_light."""
         return self._request('/api/game/hold',{'held':held})
 
     @staticmethod

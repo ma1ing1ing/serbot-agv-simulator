@@ -17,9 +17,11 @@ python3 -m simulator.server
 ```bash
 python3 -m unittest discover -s simulator/tests -v
 node --check simulator/static/app.js
+node --check simulator/static/motion.js
+node --test simulator/tests/motion.test.mjs
 ```
 
-기본 테스트 30개는 다음을 확인합니다.
+Python 테스트는 기존 로봇·시선 게임 검증에 술래잡기와 HTTP 요청 처리 검증을 추가합니다. 모션 테스트는 원본에서 변환한 로컬 데이터가 있을 때 주기 경계·유한한 관절 값·실제 변화량을 검사합니다.
 
 - 선속도·회전, 명령 완료·대체·정지, 가상 시간·배속·일시정지
 - 벽/아이 충돌과 거리 가드, 입력 범위·유한값 검사
@@ -30,8 +32,20 @@ node --check simulator/static/app.js
 - 터치한 한 명 때문에 정지 중인 참가자까지 전원 도망
 - 터치 후에는 시선 규칙 무시, 중복 터치 방지, 재시작
 - 실제 HTTP/Python 제어 명령으로 회전했을 때 아이들의 반응
+- 술래잡기에서 시선과 무관하게 이동, 가까우면 도주, 개별 잡힘·종료
+- 자동 추격과 수동 명령 인계, 정지 후 자동 재출발 방지
+- 인원 1·5·8명과 배속 1·4에서 충돌·좌표 범위
+- 로컬 ChildACT 파일 제공과 모션의 재생 주기 경계
+- Playground A 공통 시간축 보간·누락 숨김·시간 이동·종료·기존 게임 전환 (`test_replay.py`)
 
 이 테스트는 내부에 임시 로컬 서버를 열지만 브라우저나 실제 로봇은 필요하지 않습니다. 카메라 프로토콜의 단위 테스트는 JPEG 모양의 fixture를 사용하므로 실제 3D 렌더링 결과를 검증한 것으로 해석하면 안 됩니다.
+
+포트 열기 권한이 제한된 실행 환경에서는 아래 비네트워크 검사를 사용할 수 있습니다. `RouteTests`는 실제 HTTP 요청 파서와 핸들러를 메모리 입출력으로 실행합니다. TCP 연결과 브라우저 렌더링 검사를 대신하지 않습니다.
+
+```bash
+python3 -m unittest simulator.tests.test_simulator.WorldTests simulator.tests.test_simulator.GameTests simulator.tests.test_tag_game simulator.tests.test_http_routes -v
+node --test simulator/tests/motion.test.mjs
+```
 
 ## 브라우저와 실제 렌더링 연결 검사
 
@@ -50,6 +64,9 @@ python3 -m unittest simulator.tests.live_camera_check -v
 | 바꾸려는 것 | 위치 |
 |---|---|
 | 시선·터치·도망 규칙 | `simulator/engine.py`의 `World` |
+| 술래잡기 이동 경로·자동 추격 | `simulator/tag_game.py` |
+| ChildACT 변환 | `tools/build_childact_motion.py`, [변환 설명](CHILDACT.md) |
+| 관절 모션 보간 | `simulator/static/motion.js` |
 | 로봇 운동·충돌·센서 | `engine.py`의 `tick`, `clearance`, `ray` |
 | HTTP 계약 | `simulator/server.py` |
 | AI용 Python 인터페이스 | `simulator/client.py` |

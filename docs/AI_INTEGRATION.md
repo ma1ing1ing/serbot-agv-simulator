@@ -117,15 +117,17 @@ robot.wheels(6, -6, seconds=0.5)
 ## 게임과 센서
 
 ```python
-robot.start_game()               # 위치·시간·카메라 프레임·명령 초기화
-robot.hold_children(True)        # 터치 전 접근 잠깐 멈춤
-robot.hold_children(False)       # 접근 재개; 로봇 방향 규칙은 그대로 적용
+robot.start_game(auto_chase=False)  # 술래잡기 시작, 로봇은 직접 만든 AI로 제어
+robot.hold_children(True)        # 놀이 참가자 이동 잠깐 멈춤
+robot.hold_children(False)       # 이동 재개
 robot.say("안녕하세요")          # 화면 텍스트, 선택적 브라우저 TTS
 distances = robot.ultrasonic()   # cm, 전후좌우
 scan = robot.lidar_scan()        # m, 72방향
 ```
 
-터치 후에는 `hold_children()`이 오류를 반환합니다. 전원 도망 규칙을 중간에 해제하지 않기 위해서입니다. 세계 전체 일시정지는 GUI나 HTTP 설정 API로 할 수 있습니다.
+기본 모드는 술래잡기입니다. 시연용 자동 추격은 정답 위치를 사용하므로 영상 AI 평가에서는 끕니다. 수동 주행·정지 명령도 자동 추격을 해제하며, 명령 종료 후 자동으로 켜지지 않습니다. 필요하면 `robot.auto_chase(True)`로 시연을 재개합니다.
+
+기존 놀이는 `robot.start_game('red_light')`로 선택합니다. 이 모드에서 터치 후에는 전원 도망 규칙을 유지하기 위해 `hold_children()`이 오류를 반환합니다. 세계 전체 일시정지는 GUI나 HTTP 설정 API로 할 수 있습니다.
 
 ## 영상 AI 평가 시 구분할 것
 

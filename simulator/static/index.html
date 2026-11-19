@@ -35,16 +35,28 @@
       <input id="people-count" aria-label="가상 아이들 수" type="range" min="1" max="8" value="5"><div class="range-ticks"><span>1명</span><span>8명</span></div>
       <div class="control-label speed-label"><label for="rate">시뮬레이션 속도</label></div>
       <select id="rate"><option value="0.5">0.5× · 천천히</option><option value="1" selected>1× · 실제 시간</option><option value="2">2× · 빠르게</option><option value="4">4× · 빠르게</option></select>
-      <hr><div class="section-title"><span>무궁화꽃이 피었습니다</span><svg><use href="#i-people"/></svg></div>
-      <div id="game-card" class="game-card" data-phase="ready"><span id="game-stage">게임 대기</span><strong id="game-title">시선에 따라 접근 · 정지</strong><p id="game-detail">로봇이 뒤돌면 접근, 바라보면 정지. 한 명이 터치하면 전원 도망.</p><div class="game-steps"><span data-step="approaching">① 접근 · 정지</span><b>→</b><span data-step="escaping">② 터치 · 도망</span><b>→</b><span data-step="finished">③ 도착</span></div></div>
+      <hr><div class="section-title"><span>아이들과 놀이</span><svg><use href="#i-people"/></svg></div>
+      <label class="control-label" for="game-mode">놀이 선택</label>
+      <select id="game-mode"><option value="tag">술래잡기</option><option value="red_light">무궁화꽃이 피었습니다</option><option value="playground_a">Playground A · 위치 기록 재생</option></select>
+      <div id="replay-controls" class="replay-controls" hidden>
+        <p id="replay-status" role="status">위치 기록 확인 중</p>
+        <label for="replay-clip">재생 구간</label><select id="replay-clip"><option value="active">움직임 관찰 · 2분</option></select>
+        <label for="replay-count">표시할 참가자</label><select id="replay-count"><option value="16">전체 16명</option><option value="8">8명</option><option value="4">4명</option></select>
+        <div class="replay-clock"><label for="replay-time">기록 진행</label><output id="replay-clock">00:00 / 02:00</output></div>
+        <input id="replay-time" aria-label="기록 재생 위치" type="range" min="0" max="120" step="0.1" value="0" disabled>
+        <p>놀이실 크기에 맞춘 경로입니다. 원본 거리·시간 단위는 미확인입니다.</p>
+      </div>
+      <label id="auto-chase-control" class="auto-chase"><input id="auto-chase" type="checkbox" checked> 로봇 자동 추격</label>
+      <div id="game-card" class="game-card" data-phase="ready"><span id="game-stage">게임 대기</span><strong id="game-title">로봇 술래를 피해 도망가요</strong><p id="game-detail">가까우면 달리고, 멀어지면 천천히 걸어요. 벽과 다른 아이를 피해 방향을 바꿉니다.</p><div class="game-steps"><span data-step="approaching">① 도망가기</span><b>→</b><span data-step="escaping">② 가까우면 잡힘</span><b>→</b><span data-step="finished">③ 모두 잡으면 끝</span></div></div>
       <div class="bulk-actions game-actions"><button id="game-start">게임 시작</button><button id="game-hold" disabled>접근 잠깐 멈춤</button></div>
-      <p class="helper">터치 전에는 아이별 행동을 조절할 수 있어요.</p>
+      <p id="game-helper" class="helper">로봇이 다가오면 아이들이 방향을 바꿔 도망가요.</p>
+      <p id="motion-status" class="motion-status" data-source="loading" role="status">동작 준비 중</p>
       <div id="children-list" class="children-list"></div>
-      <div class="note"><span>ⓘ</span><p>터치 전: 로봇 전방의 아이는 정지, 뒤쪽의 아이만 접근. 터치 후: 방향과 관계없이 전원 도망. 로봇 회전은 수동 버튼이나 AI로 제어합니다.</p></div>
+      <div class="note"><span>ⓘ</span><p id="game-note">자동 추격을 켜면 바로 관찰할 수 있어요. 수동 버튼이나 Python 명령을 사용하면 자동 추격이 해제됩니다.</p></div>
     </aside>
     <section class="world-panel panel">
       <div class="viewport-toolbar"><div class="viewport-title"><svg><use href="#i-cube"/></svg><strong>3D 플레이그라운드</strong><span class="live-dot"></span></div><div class="camera-tabs" aria-label="3D 시점"><button data-view="orbit" class="selected">자유 시점</button><button data-view="top">위에서</button><button data-view="robot">로봇 시점</button></div></div>
-      <div id="viewport" class="viewport"><div class="scene-label"><span class="scene-dot"></span> SERBOT AGV <span class="scene-divider">/</span> SIMULATION</div><span id="paused-badge" class="paused-badge" hidden>Ⅱ 일시정지</span><div id="game-announcement" class="game-announcement" hidden></div><div id="loading" class="loading"><span class="loader"></span>3D 공간을 준비하고 있어요</div><div class="scene-bottom"><span id="view-hint">드래그로 회전 · 스크롤로 확대</span><div><label><input id="show-path" type="checkbox" checked> 이동 궤적</label><label><input id="show-fov" type="checkbox" checked> 카메라 시야</label></div></div><div id="speech" class="speech" hidden></div></div>
+      <div id="viewport" class="viewport"><div class="scene-label"><span class="scene-dot"></span> SERBOT AGV <span class="scene-divider">/</span> SIMULATION</div><span id="replay-badge" class="replay-badge" hidden>Playground A · 기록된 위치 재생</span><span id="paused-badge" class="paused-badge" hidden>Ⅱ 일시정지</span><div id="game-announcement" class="game-announcement" hidden></div><div id="loading" class="loading"><span class="loader"></span>3D 공간을 준비하고 있어요</div><div class="scene-bottom"><span id="view-hint">드래그로 회전 · 스크롤로 확대</span><div><label><input id="show-path" type="checkbox" checked> 이동 궤적</label><label><input id="show-fov" type="checkbox" checked> 카메라 시야</label></div></div><div id="speech" class="speech" hidden></div></div>
       <div class="telemetry"><div><small>위치 X / Z</small><strong id="pose">0.00 / −3.35 <em>m</em></strong></div><div><small>방향</small><strong id="heading">0.0 <em>°</em></strong></div><div><small>이동 속도</small><strong id="velocity">0.00 <em>m/s</em></strong></div><div><small>시뮬레이션 시간</small><strong id="sim-time">00:00.0</strong></div></div>
       <div class="manual-controls"><span>로봇 수동 테스트</span><div class="jog-buttons"><button data-jog="left" aria-label="왼쪽 회전">↶</button><button data-jog="forward" aria-label="전진">↑</button><button data-jog="backward" aria-label="후진">↓</button><button data-jog="right" aria-label="오른쪽 회전">↷</button></div><button id="robot-stop" class="stop-button"><svg><use href="#i-stop"/></svg>로봇 정지</button></div>
     </section>

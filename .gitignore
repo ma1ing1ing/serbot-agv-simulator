@@ -16,3 +16,8 @@ dist/
 htmlcov/
 .idea/
 .vscode/
+# Locally derived research data; rebuild from the user's own ChildACT ZIP.
+simulator/static/motions/*.local.json
+# Locally downloaded/processed research trajectories; do not redistribute by default.
+data/playground_a/
+simulator/data/*.local.json

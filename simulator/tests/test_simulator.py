@@ -99,7 +99,7 @@ class GameTests(unittest.TestCase):
 
     def test_touch_by_one_child_makes_everyone_flee_including_still_children(self):
         w=self.world
-        w.start_game()
+        w.start_game('red_light')
         for c in w.children:
             w.set_child(c['id'],'still')
             c['z']=2.0
@@ -117,7 +117,7 @@ class GameTests(unittest.TestCase):
             with self.subTest(count=count):
                 w=World()
                 w.set_count(count)
-                w.start_game()
+                w.start_game('red_light')
                 w.robot['heading']=math.pi
                 for _ in range(1800):
                     w.tick(.02)
@@ -130,7 +130,7 @@ class GameTests(unittest.TestCase):
 
     def test_approach_is_not_the_old_back_and_forth_patrol(self):
         w=self.world
-        w.start_game()
+        w.start_game('red_light')
         w.robot['heading']=math.pi
         self.advance(8)
         self.assertEqual(w.game['phase'],'approaching')
@@ -138,7 +138,7 @@ class GameTests(unittest.TestCase):
 
     def test_nearby_but_not_touching_does_not_trigger(self):
         w=self.world
-        w.start_game()
+        w.start_game('red_light')
         w.hold_game(True)
         w.children[2].update(x=0,z=w.robot['z']+w.touch_distance+.01)
         self.advance(.1)
@@ -146,7 +146,7 @@ class GameTests(unittest.TestCase):
 
     def test_hold_stops_approach_but_cannot_stop_group_escape(self):
         w=self.world
-        w.start_game()
+        w.start_game('red_light')
         w.hold_game(True)
         positions=[(c['x'],c['z']) for c in w.children]
         self.advance(1)
@@ -161,7 +161,7 @@ class GameTests(unittest.TestCase):
 
     def test_world_pause_freezes_escape(self):
         w=self.world
-        w.start_game()
+        w.start_game('red_light')
         w.children[2].update(x=0,z=w.robot['z']+.70)
         self.advance(.02)
         w.paused=True
@@ -175,12 +175,12 @@ class GameTests(unittest.TestCase):
         w=self.world
         w.set_count(7)
         w.rate=2
-        w.start_game()
+        w.start_game('red_light')
         w.children[2].update(x=0,z=w.robot['z']+.7)
         self.advance(.02)
         old=w.epoch
         w.command(.1,0,5)
-        w.start_game()
+        w.start_game('red_light')
         self.assertNotEqual(w.epoch,old)
         self.assertIsNone(w.motion)
         self.assertEqual(w.rate,2)
@@ -190,14 +190,14 @@ class GameTests(unittest.TestCase):
         self.assertTrue(all(c['z']==w.home_z for c in w.children))
 
     def test_population_cannot_change_mid_round(self):
-        self.world.start_game()
+        self.world.start_game('red_light')
         with self.assertRaises(ValueError):
             self.world.set_count(8)
         self.assertEqual(len(self.world.children),5)
 
     def test_children_freeze_when_tagger_faces_them_including_wiggle(self):
         w=self.world
-        w.start_game()
+        w.start_game('red_light')
         w.set_child(0,'wiggle')
         positions=[(c['x'],c['z']) for c in w.children]
         self.advance(2)
@@ -206,7 +206,7 @@ class GameTests(unittest.TestCase):
 
     def test_turn_away_approach_then_turn_back_freeze(self):
         w=self.world
-        w.start_game()
+        w.start_game('red_light')
         w.robot['heading']=math.pi
         before=[c['z'] for c in w.children]
         self.advance(1)
@@ -230,7 +230,7 @@ class GameTests(unittest.TestCase):
 
     def test_gaze_does_not_stop_escape(self):
         w=self.world
-        w.start_game()
+        w.start_game('red_light')
         for c in w.children:
             c['z']=2
         w.children[2].update(x=0,z=w.robot['z']+.70)
@@ -319,7 +319,7 @@ class APITests(unittest.TestCase):
         self.assertIsNone(self.server.world.motion)
 
     def test_game_api_and_sdk(self):
-        self.robot.start_game()
+        self.robot.start_game('red_light')
         self.assertEqual(self.robot.status()['game']['phase'],'approaching')
         self.robot.hold_children()
         self.assertTrue(self.robot.status()['game']['held'])
@@ -333,7 +333,7 @@ class APITests(unittest.TestCase):
         self.assertEqual(len(state['children']),5)
 
     def test_rotation_commands_control_children_via_api(self):
-        self.robot.start_game()
+        self.robot.start_game('red_light')
         before=self.robot.status()['children']
         self.assertTrue(all(c['watched'] for c in before))
         self.robot.command_velocity(angular_rps=3,seconds=math.pi/3)

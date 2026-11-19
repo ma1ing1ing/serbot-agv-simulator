@@ -1,13 +1,39 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/OrbitControls.js';
+import {sampleMotion, validateMotionPack} from './motion.js';
 
 const $ = (s) => document.querySelector(s);
 const dom = Object.fromEntries(['viewport','camera-view','children-list','logs','pose','heading','velocity','sim-time','front-distance','camera-status','camera-fps','connection'].map(id => [id, document.getElementById(id)]));
 let state = null, publisher = '', view = 'orbit', lastPoll = 0, lastUpload = 0, uploadBusy = false;
 let published = 0, fpsStart = performance.now(), lastSpeech = 0, toastTimer, childIds = '', logSignature = '';
 const childModels = new Map();
+const childPaths = new Map();
 let scene, renderer, sensorRenderer, camera, sensorCamera, controls, robot, pathLine, fovGroup, robotScreen;
 let ready = false;
+let motionPack=null, stateReceivedAt=0, lastAnimationAt=0;
+let replayInfo=null, renderedEpoch='', renderedRevision=-1;
+
+async function loadReplay() {
+  try {replayInfo=await api('/api/replay');}
+  catch {replayInfo={available:false,error:'위치 기록을 확인하지 못했습니다'};}
+  const select=$('#replay-clip');select.replaceChildren();
+  for(const clip of replayInfo.clips||[]) select.add(new Option(clip.name,clip.id));
+  $('#replay-status').textContent=replayInfo.available?`${replayInfo.participants}명 위치 기록 연결됨`:'위치 기록 파일을 먼저 준비해 주세요';
+  $('#replay-status').title=replayInfo.error||'';
+}
+
+async function loadMotions() {
+  try {
+    const response=await fetch('/motions/childact.local.json');
+    if(!response.ok) throw new Error('local motions unavailable');
+    motionPack=validateMotionPack(await response.json());
+    $('#motion-status').textContent='ChildACT 동작 연결됨';
+    $('#motion-status').dataset.source='childact';
+  } catch {
+    $('#motion-status').textContent='기본 동작 사용 중';
+    $('#motion-status').dataset.source='procedural';
+  }
+}
 
 async function api(path, data) {
   const response = await fetch(path, data === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
@@ -122,31 +148,41 @@ function drawFace(ctx,w,h) {
 }
 function createChild(child) {
   const group=new THREE.Group(),skin=mat('#e7b890'),hair=mat('#4a3a2f'),shirt=mat(child.color),pants=mat('#586d79'),shoe=mat('#f4eee0');
-  const scale=child.height/1.2;group.scale.setScalar(scale);
+  const scale=child.height/1.2*(child.display_scale||1);group.scale.setScalar(scale);
   // Local +z is the child's face. Each limb rotates about a real shoulder/hip.
-  const torso=box(group,.30,.36,.19,shirt,0,.66,0);torso.geometry.computeVertexNormals();
-  cylinder(group,.045,.05,.09,skin,0,.89,0);
-  const head=sphere(group,.145,skin,0,1.045,0);head.scale.set(.94,1.05,.92);
-  const haircap=mesh(new THREE.SphereGeometry(.149,20,12,0,Math.PI*2,0,Math.PI*.53),hair,group,0,1.055,0);
+  const body=new THREE.Group();body.position.y=.48;group.add(body);
+  const torso=box(body,.30,.36,.19,shirt,0,.18,0);torso.geometry.computeVertexNormals();
+  cylinder(body,.045,.05,.09,skin,0,.41,0);
+  const head=sphere(body,.145,skin,0,.565,0);head.scale.set(.94,1.05,.92);
+  const haircap=mesh(new THREE.SphereGeometry(.149,20,12,0,Math.PI*2,0,Math.PI*.53),hair,body,0,.575,0);
   if(child.id%2===0) {
-    for(const x of [-.14,.14]) sphere(group,.055,hair,x,1.035,-.04);
-  } else {box(group,.24,.065,.11,hair,0,1.12,.06);}
-  for(const x of [-.048,.048]) sphere(group,.011,'#363b32',x,1.053,.126);
-  sphere(group,.014,'#d79d77',0,1.02,.139);
-  box(group,.045,.007,.009,'#ab735b',0,.988,.135);
-  const arms=[],legs=[];
+    for(const x of [-.14,.14]) sphere(body,.055,hair,x,.555,-.04);
+  } else {box(body,.24,.065,.11,hair,0,.64,.06);}
+  for(const x of [-.048,.048]) sphere(body,.011,'#363b32',x,.573,.126);
+  sphere(body,.014,'#d79d77',0,.54,.139);
+  box(body,.045,.007,.009,'#ab735b',0,.508,.135);
+  const arms=[],legs=[],elbows=[],knees=[],feet=[];
   for(const side of [-1,1]) {
-    const arm=new THREE.Group();arm.position.set(side*.20,.8,0);group.add(arm);
+    const arm=new THREE.Group();arm.position.set(side*.20,.32,0);body.add(arm);
     const sleeve=box(arm,.105,.16,.13,shirt,0,-.055,0);sleeve.rotation.z=side*.08;
-    cylinder(arm,.041,.035,.19,skin,0,-.22,0);sphere(arm,.043,skin,0,-.32,0);arms.push(arm);
+    cylinder(arm,.041,.037,.12,skin,0,-.115,0);
+    const elbow=new THREE.Group();elbow.position.y=-.18;arm.add(elbow);
+    sphere(elbow,.039,skin);cylinder(elbow,.036,.03,.14,skin,0,-.07,0);sphere(elbow,.041,skin,0,-.16,0);
+    arms.push(arm);elbows.push(elbow);
     const leg=new THREE.Group();leg.position.set(side*.085,.48,0);group.add(leg);
     box(leg,.115,.19,.15,pants,0,-.075,0);
-    cylinder(leg,.041,.032,.22,skin,0,-.265,0);
-    box(leg,.11,.07,.18,shoe,0,-.395,.026);legs.push(leg);
+    const knee=new THREE.Group();knee.position.y=-.205;leg.add(knee);
+    sphere(knee,.042,skin);cylinder(knee,.039,.031,.17,skin,0,-.085,0);
+    const foot=new THREE.Group();foot.position.set(0,-.195,.026);knee.add(foot);
+    box(foot,.11,.07,.18,shoe);legs.push(leg);knees.push(knee);feet.push(foot);
   }
   const name=label(child.name);name.position.y=1.4/scale;group.add(name);
   const shadow=mesh(new THREE.CircleGeometry(.23,24),new THREE.MeshBasicMaterial({color:'#71816a',transparent:true,opacity:.12,depthWrite:false}),group,0,.012,0);shadow.rotation.x=-Math.PI/2;
-  group.userData={arms,legs};scene.add(group);return group;
+  const caughtRing=mesh(new THREE.RingGeometry(.25,.29,32),new THREE.MeshBasicMaterial({color:'#ce7b66',side:THREE.DoubleSide}),group,0,.023,0);
+  caughtRing.rotation.x=-Math.PI/2;caughtRing.visible=false;
+  group.userData={arms,legs,elbows,knees,feet,body,shadow,caughtRing,pose:Array(9).fill(0)};
+  group.position.set(child.x,0,child.z);group.rotation.y=child.heading;
+  scene.add(group);return group;
 }
 function createFov() {
   const group=new THREE.Group();scene.add(group);
@@ -187,15 +223,28 @@ function setView(mode) {
 }
 function updateWorld() {
   if(!state||!ready) return;
+  const revision=state.replay?.revision??-1;
+  const discontinuity=renderedEpoch!==state.epoch||renderedRevision!==revision;
+  if(discontinuity) {
+    for(const model of childModels.values()) {scene.remove(model);dispose(model);}
+    childModels.clear();
+    for(const line of childPaths.values()) {scene.remove(line);dispose(line);}
+    childPaths.clear();
+    renderedEpoch=state.epoch;renderedRevision=revision;
+  }
   robot.position.set(state.robot.x,0,state.robot.z);robot.rotation.y=-state.robot.heading;
   for(const child of state.children) {
     let model=childModels.get(child.id);
     if(!model) {model=createChild(child);childModels.set(child.id,model);}
-    model.position.set(child.x,0,child.z);model.rotation.y=child.heading;
-    const stride=child.moving?Math.sin(state.time*(child.running?13:child.pace*15)+child.phase)*(child.running?.8:.5):0;
-    model.userData.legs.forEach((l,i)=>l.rotation.x=(i?1:-1)*stride);
-    model.userData.arms.forEach((a,i)=>{a.rotation.x=(i?-1:1)*stride*.8;a.rotation.z=child.wave?(i?-1:1)*(.7+Math.sin(state.time*7)*.25):0;});
-    if(child.wave) model.rotation.y+=Math.sin(state.time*5+child.phase)*.16;
+    model.visible=child.visible!==false;
+    model.userData.caughtRing.visible=Boolean(child.caught);
+    if(state.replay) {
+      let line=childPaths.get(child.id);
+      if(!line) {line=new THREE.Line(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:child.color,transparent:true,opacity:.8}));line.layers.set(1);scene.add(line);childPaths.set(child.id,line);}
+      const points=(child.trail||[]).map(([x,z])=>new THREE.Vector3(x,.037,z));
+      line.geometry.dispose();line.geometry=new THREE.BufferGeometry().setFromPoints(points);
+      line.visible=$('#show-path').checked&&child.visible!==false&&points.length>1;
+    }
   }
   for(const [id,model] of childModels) if(!state.children.some(c=>c.id===id)) {scene.remove(model);dispose(model);childModels.delete(id);}
   const points=state.trail.map(([x,z])=>new THREE.Vector3(x,.025,z));
@@ -208,6 +257,39 @@ function updateWorld() {
   sensorCamera.position.copy(eye);sensorCamera.lookAt(target);
   if(view==='robot') {camera.position.copy(eye);camera.up.set(0,1,0);camera.lookAt(target);camera.fov=75;camera.updateProjectionMatrix();}
   else if(camera.fov!==43) {camera.fov=43;camera.updateProjectionMatrix();}
+}
+const footPosition=new THREE.Vector3();
+function animateChildren(now) {
+  if(!state) return;
+  const dt=Math.min(.1,Math.max(0,(now-lastAnimationAt)/1000));lastAnimationAt=now;
+  const elapsed=state.paused?0:Math.min(.12,Math.max(0,(now-stateReceivedAt)/1000))*state.rate;
+  const alpha=state.paused?1:1-Math.exp(-dt*18);
+  for(const child of state.children) {
+    const model=childModels.get(child.id);if(!model) continue;
+    if(child.visible===false) continue;
+    model.position.x+=(child.x-model.position.x)*alpha;
+    model.position.z+=(child.z-model.position.z)*alpha;
+    const turn=Math.atan2(Math.sin(child.heading-model.rotation.y),Math.cos(child.heading-model.rotation.y));
+    model.rotation.y+=turn*alpha;
+    const kind=child.motion_kind==='run'||child.running?'run':child.motion_kind==='jog'?'jog':'walk';
+    const time=(state.game.mode==='tag'||state.replay)&&state.game.phase!=='ready'?child.motion_time+(child.moving?elapsed*(child.speed/(kind==='run'?.85:kind==='jog'?.62:.44)):0):state.time+elapsed+child.phase;
+    const target=child.moving?sampleMotion(motionPack,kind,time):[0,0,.05,.05,0,0,-.15,-.15,0];
+    const rig=model.userData;
+    rig.pose=rig.pose.map((v,j)=>v+(target[j]-v)*alpha);
+    for(let i=0;i<2;i++) {
+      rig.legs[i].rotation.x=rig.pose[i];rig.knees[i].rotation.x=rig.pose[i+2];
+      rig.arms[i].rotation.x=rig.pose[i+4];rig.elbows[i].rotation.x=rig.pose[i+6];
+      rig.arms[i].rotation.z=child.wave?(i?-1:1)*(.7+Math.sin(time*7)*.25):0;
+    }
+    rig.body.rotation.x=rig.pose[8];
+    // Ground the lowest shoe; depth, foot contact and timing are approximations.
+    model.position.y=0;model.updateMatrixWorld(true);
+    let lowest=Infinity;
+    for(const foot of rig.feet) {foot.getWorldPosition(footPosition);lowest=Math.min(lowest,footPosition.y-.035*model.scale.y);}
+    model.position.y=Math.max(-.03,.025-lowest);
+    rig.shadow.position.y=(.012-model.position.y)/model.scale.y;
+    rig.caughtRing.position.y=(.023-model.position.y)/model.scale.y;
+  }
 }
 function dispose(group) {group.traverse(o=>{o.geometry?.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];for(const m of ms)if(m){m.map?.dispose();m.dispose();}});}
 async function publishFrame(now) {
@@ -229,6 +311,7 @@ async function publishFrame(now) {
 function animate(now) {
   requestAnimationFrame(animate);
   if(!ready) return;
+  animateChildren(now);
   if(view==='orbit') controls.update();
   const hide=view==='robot';robot.visible=!hide;renderer.render(scene,camera);robot.visible=true;
   if(now-lastPoll>65) {lastPoll=now;poll();}
@@ -239,7 +322,9 @@ async function poll() {
   if(polling) return;
   polling=true;
   try {
-    state=await api('/api/state');
+    const previousEpoch=state?.epoch;
+    state=await api('/api/state');stateReceivedAt=performance.now();
+    if(state.epoch!==previousEpoch&&state.game.phase!=='ready') $('#game-mode').value=state.game.mode;
     dom.connection.classList.remove('offline');dom.connection.innerHTML='<i></i> 로컬 시뮬레이터 연결됨';
     updateWorld();updateUI();
   } catch(e) {dom.connection.classList.add('offline');dom.connection.innerHTML='<i></i> 서버 연결 끊김';dom['camera-status'].textContent='연결 끊김';}
@@ -258,21 +343,36 @@ function updateUI() {
   if(document.activeElement!==$('#people-count')) $('#people-count').value=state.children.length;
   $('#people-value').textContent=state.children.length+'명';
   const game=state.game, phase=game.phase;
+  const isTag=phase==='ready'?$('#game-mode').value==='tag':game.mode==='tag';
+  const active=['approaching','escaping','chasing','replaying'].includes(phase);
+  const isReplay=game.mode==='playground_a'||(phase==='ready'&&$('#game-mode').value==='playground_a');
   const allWatched=state.children.every(c=>c.watched);
-  $('#people-count').disabled=phase==='approaching'||phase==='escaping';
+  $('#people-count').disabled=active||isReplay;
+  $('#people-count').max=isReplay?16:8;
+  $('.range-ticks span:last-child').textContent=isReplay?'16명':'8명';
+  $('#game-mode').disabled=active;
+  $('#auto-chase-control').hidden=!isTag;
+  $('#auto-chase').disabled=false;
+  if(game.mode==='tag'&&phase==='chasing') $('#auto-chase').checked=game.auto_chase;
   $('#game-card').dataset.phase=phase;
-  $('#game-stage').textContent=({ready:'게임 대기',approaching:game.held?'접근 일시정지':allWatched?'로봇 시선 · 정지':'로봇 뒤쪽에서 접근',escaping:'터치! 모두 도망',finished:'한 게임 완료'})[phase];
-  $('#game-title').textContent=({ready:'시선에 따라 접근 · 정지',approaching:game.held?'접근 일시정지':allWatched?'아이들 정지':'아이들 접근',escaping:`아이 ${game.touched_by+1} 터치 · 전원 도망`,finished:'전원 출발선 도착'})[phase];
-  $('#game-detail').textContent=({ready:'로봇이 뒤돌면 접근, 바라보면 정지. 한 명이 터치하면 전원 도망.',approaching:'로봇 전방에 있는 아이는 멈추고, 뒤쪽에 있는 아이만 접근합니다.',escaping:`전원 도망 중 · 출발선 도착 ${game.escaped_ids.length}/${state.children.length}명`,finished:`아이 ${game.touched_by+1} 터치 · 새 게임으로 다시 시작`})[phase];
+  $('#game-stage').textContent=isTag?(phase==='chasing'?(game.held?'잠깐 멈춤':'술래잡기 진행 중'):phase==='finished'?'게임 완료':'게임 대기'):({ready:'게임 대기',approaching:game.held?'접근 일시정지':allWatched?'로봇 시선 · 정지':'로봇 뒤쪽에서 접근',escaping:'터치! 모두 도망',finished:'한 게임 완료'})[phase];
+  $('#game-title').textContent=isTag?(phase==='finished'?'모두 잡았어요!':phase==='ready'?'로봇 술래를 피해 도망가요':`잡힌 아이 ${game.caught_ids.length} / ${state.children.length}명`):({ready:'시선에 따라 접근 · 정지',approaching:game.held?'접근 일시정지':allWatched?'아이들 정지':'아이들 접근',escaping:`아이 ${game.touched_by+1} 터치 · 전원 도망`,finished:'전원 출발선 도착'})[phase];
+  $('#game-detail').textContent=isTag?'로봇이 다가오면 달리고, 멀어지면 천천히 걸어요. 벽과 다른 아이를 피해 방향을 바꿉니다.':({ready:'로봇이 뒤돌면 접근, 바라보면 정지. 한 명이 터치하면 전원 도망.',approaching:'로봇 전방에 있는 아이는 멈추고, 뒤쪽에 있는 아이만 접근합니다.',escaping:`전원 도망 중 · 출발선 도착 ${game.escaped_ids.length}/${state.children.length}명`,finished:`아이 ${game.touched_by+1} 터치 · 새 게임으로 다시 시작`})[phase];
   $('#game-start').textContent=phase==='ready'?'게임 시작':'새 게임';
-  $('#game-hold').disabled=phase!=='approaching';
-  $('#game-hold').textContent=game.held?'접근 계속하기':'접근 잠깐 멈춤';
-  document.querySelectorAll('[data-step]').forEach(el=>el.classList.toggle('active',el.dataset.step===phase));
+  $('#game-start').disabled=false;
+  $('#game-hold').disabled=phase!=='approaching'&&phase!=='chasing';
+  $('#game-hold').textContent=isTag?(game.held?'놀이 계속하기':'놀이 잠깐 멈춤'):(game.held?'접근 계속하기':'접근 잠깐 멈춤');
+  const steps=document.querySelectorAll('[data-step]');
+  steps.forEach((el,i)=>{el.textContent=(isTag?['① 도망가기','② 가까우면 잡힘','③ 모두 잡으면 끝']:['① 접근 · 정지','② 터치 · 도망','③ 도착'])[i];el.classList.toggle('active',isTag?(i===0&&phase==='chasing')||(i===2&&phase==='finished'):el.dataset.step===phase);});
+  $('#game-helper').textContent=isTag?'잡힌 아이는 붉은 표시와 함께 멈춰요.':'터치 전에는 아이별 행동을 조절할 수 있어요.';
+  $('#game-note').textContent=isTag?'자동 추격을 켜면 바로 관찰할 수 있어요. 수동 버튼이나 Python 명령을 사용하면 자동 추격이 해제됩니다.':'터치 전에는 로봇 전방에서 정지, 뒤쪽에서 접근합니다. 터치 후에는 전원 도망갑니다.';
   const announcement=$('#game-announcement');announcement.hidden=phase!=='escaping'&&phase!=='finished';
   announcement.classList.toggle('finished',phase==='finished');
-  announcement.textContent=phase==='escaping'?`아이 ${game.touched_by+1} 터치! 모두 출발선으로 도망가요!`:'전원 출발선 도착 · 게임 완료';
+  announcement.textContent=phase==='escaping'?`아이 ${game.touched_by+1} 터치! 모두 출발선으로 도망가요!`:isTag?'모두 잡았어요 · 게임 완료':'전원 출발선 도착 · 게임 완료';
+  updateReplayUI(isReplay);
+  if(state.replay&&$('#game-mode').value!=='playground_a') $('#game-start').textContent='선택한 놀이 시작';
   if(document.activeElement!==$('#rate')) $('#rate').value=state.rate;
-  const ids=state.children.map(c=>c.id).join(',');
+  const ids=state.epoch+':'+state.children.map(c=>c.id).join(',');
   if(ids!==childIds) {
     childIds=ids;dom['children-list'].replaceChildren();
     for(const c of state.children) {
@@ -289,9 +389,15 @@ function updateUI() {
     const el=$(`[data-child="${c.id}"]`);
     if(el&&document.activeElement!==el)el.value=c.mode;
     if(el) {
-      el.disabled=phase==='escaping'||phase==='finished';
-      el.querySelector('[value="walk"]').textContent=phase==='escaping'?'도망가기':phase==='approaching'&&c.watched?'시선 · 멈춤':'걷기';
+      el.disabled=phase==='escaping'||phase==='finished'||phase==='chasing';
+      el.querySelector('[value="walk"]').textContent=isTag&&phase!=='ready'?(c.caught?'잡힘':c.running?'달리기':c.motion_kind==='jog'?'조깅':c.resting?'잠깐 쉬기':'걷기'):phase==='escaping'?'도망가기':phase==='approaching'&&c.watched?'시선 · 멈춤':'걷기';
       el.querySelector('[value="still"]').textContent=c.escaped?'출발선 도착':'멈춤';
+      el.closest('.child-row').classList.toggle('caught',Boolean(c.caught));
+      if(state.replay) {
+        el.disabled=true;
+        el.querySelector('[value="walk"]').textContent=c.visible===false?'기록 없음':c.moving?'이동 중':'멈춤';
+        el.closest('.child-row').classList.toggle('missing',c.visible===false);
+      }
     }
   }
   const signature=JSON.stringify(state.logs);
@@ -306,12 +412,56 @@ function updateUI() {
     if(state.speech&&$('#audio').checked&&'speechSynthesis' in window) {speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(state.speech);utterance.lang='ko-KR';speechSynthesis.speak(utterance);}
   }
 }
+function updateReplayUI(selected) {
+  const info=state.replay, game=state.game;
+  $('#replay-controls').hidden=!selected;
+  $('#replay-badge').hidden=!info;
+  dom['children-list'].classList.toggle('replay-list',Boolean(info));
+  for(const value of [8,16]) {
+    let option=$(`#rate option[value="${value}"]`);
+    if(!option) {option=new Option(`${value}× · 기록 빠르게 보기`,value);$('#rate').add(option);}
+    option.hidden=!info;option.disabled=!info;
+  }
+  if(!selected) return;
+  $('#auto-chase-control').hidden=true;
+  $('#game-start').disabled=!replayInfo?.available;
+  $('#game-start').textContent=info?'기록 다시 재생':'기록 재생';
+  $('#game-hold').disabled=!info||game.phase==='finished';
+  $('#game-hold').textContent=game.held?'재생 계속':'재생 잠깐 멈춤';
+  $('#game-mode').disabled=false;
+  $('#replay-clip').disabled=false;$('#replay-count').disabled=false;
+  $('#replay-time').disabled=!info;
+  $('#game-stage').textContent=!info?'기록 재생 대기':game.phase==='finished'?'기록 재생 완료':game.held?'재생 잠깐 멈춤':'기록 재생 중';
+  const visible=state.children.filter(c=>c.visible!==false).length;
+  $('#game-title').textContent=info?`위치 기록 ${visible} / ${state.children.length}명 표시`:'아이들이 움직였던 경로를 함께 봐요';
+  $('#game-detail').textContent='기록된 위치를 같은 시간축으로 재생합니다. 술래 역할과 로봇에 대한 반응은 포함하지 않습니다.';
+  const steps=document.querySelectorAll('[data-step]');
+  steps.forEach((el,i)=>{el.textContent=['① 구간 선택','② 기록 재생','③ 경로 관찰'][i];el.classList.toggle('active',i===1&&game.phase==='replaying');});
+  $('#game-helper').textContent='아이마다 색이 같은 이동선이 표시됩니다. 위에서 보면 경로를 비교하기 좋아요.';
+  $('#game-note').textContent='기록이 없는 동안에는 해당 아이를 숨깁니다. 공간 맞춤·8×로 시작하며, 재생 속도와 시간 막대를 조절할 수 있어요.';
+  $('#game-announcement').hidden=game.phase!=='finished';
+  $('#game-announcement').textContent='위치 기록 재생 완료 · 다시 재생할 수 있어요';
+  if(info) {
+    const format=t=>`${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`;
+    $('#replay-clock').textContent=`${format(info.elapsed)} / ${format(info.duration)}`;
+    $('#replay-time').max=info.duration;
+    if(document.activeElement!==$('#replay-time')) $('#replay-time').value=info.elapsed;
+  }
+}
 $('#pause').addEventListener('click',()=>state&&act('/api/world/config',{paused:!state.paused}));
 $('#reset').addEventListener('click',()=>{lastSpeech=-1;act('/api/world/reset',{});if('speechSynthesis' in window)speechSynthesis.cancel();});
 $('#rate').addEventListener('change',e=>act('/api/world/config',{rate:Number(e.target.value)}));
 $('#people-count').addEventListener('input',e=>$('#people-value').textContent=e.target.value+'명');
 $('#people-count').addEventListener('change',e=>act('/api/world/config',{count:Number(e.target.value)}));
-$('#game-start').addEventListener('click',()=>act('/api/game/start',{}));
+$('#game-start').addEventListener('click',async()=>{
+  const mode=$('#game-mode').value;
+  await act('/api/game/start',{mode,auto_chase:$('#auto-chase').checked,
+    replay_count:Number($('#replay-count').value),clip_id:$('#replay-clip').value||'active'});
+  if(mode==='playground_a'&&state?.replay) setView('top');
+});
+$('#replay-time').addEventListener('change',e=>act('/api/replay/seek',{elapsed:Number(e.target.value)}));
+$('#game-mode').addEventListener('change',()=>state&&updateUI());
+$('#auto-chase').addEventListener('change',e=>{if(state?.game.phase==='chasing')act('/api/game/auto',{enabled:e.target.checked});});
 $('#game-hold').addEventListener('click',()=>state&&act('/api/game/hold',{held:!state.game.held}));
 $('#robot-stop').addEventListener('click',()=>act('/api/robot/stop',{}));
 document.querySelectorAll('[data-jog]').forEach(button=>button.addEventListener('click',()=>{const d=button.dataset.jog;act('/api/robot/command',{linear_mps:d==='forward'?.2:d==='backward'?-.2:0,angular_rps:d==='left'?1:d==='right'?-1:0,seconds:.7,guard:true});}));
@@ -323,5 +473,5 @@ $('#copy-code').addEventListener('click',async()=>{try {await navigator.clipboar
 window.addEventListener('error',e=>{if(!ready){$('#loading').textContent='3D 화면을 시작하지 못했습니다. 브라우저의 WebGL 지원을 확인해 주세요.';}console.error(e.error);});
 try {
   ({publisher}=await api('/api/session'));
-  init3d();await poll();
+  init3d();await Promise.all([loadMotions(),loadReplay(),poll()]);updateUI();
 } catch(e) {$('#loading').innerHTML='';$('#loading').textContent='시뮬레이터를 시작하지 못했습니다: '+e.message;console.error(e);}

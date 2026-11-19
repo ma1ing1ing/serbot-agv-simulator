@@ -32,6 +32,7 @@ serbot-agv-simulator/
 │   └── assets/preview.jpg     # 가상 화면 예시
 └── simulator/
     ├── engine.py              # 로봇·아이·충돌·게임 상태
+    ├── tag_game.py            # 합성 도망 경로·자동 추격·잡힘 판정
     ├── server.py              # 정적 화면, HTTP API, 세계 tick
     ├── client.py              # 외부 Python용 SimRobot
     ├── examples/camera_client.py
@@ -40,6 +41,8 @@ serbot-agv-simulator/
         ├── index.html         # 한국어 UI
         ├── style.css          # 레이아웃·스타일
         ├── app.js             # 3D 장면·애니메이션·카메라 발행
+        ├── motion.js          # 관절 동작 보간·기본 동작 대체
+        ├── motions/           # Git에서 제외한 로컬 ChildACT 변환 데이터
         └── vendor/            # 고정 버전 Three.js / OrbitControls
 ```
 
@@ -56,6 +59,8 @@ serbot-agv-simulator/
 `app.js`는 대략 65ms 이상 간격으로 상태를 요청하고 Three.js 장면에 반영합니다. 가상 로봇의 pose로 별도 카메라를 배치하고 640×480 JPEG를 약 125ms 이상 간격으로 서버에 보냅니다. 실제 속도는 브라우저와 하드웨어에 따라 달라집니다.
 
 관찰자 카메라와 AI용 카메라는 분리됩니다. 관찰자용 이름표·시야 표시·이동 궤적은 별도 레이어에 놓아 AI용 영상에 포함하지 않습니다.
+
+`tools/build_childact_motion.py`가 사용자의 ZIP에서 관절 각도 변화를 추출합니다. `motion.js`가 이를 캐릭터의 관절에 근사 적용합니다. 이 변환 데이터에는 바닥의 m 단위 궤적이 없습니다. 바닥 위치는 `tag_game.py`에서 생성하고, 관절 재생 시간은 실제 시뮬 이동 속도에 맞춰 진행합니다. 자동 추격은 정답 위치를 사용하며 외부 AI의 주행 명령은 자동 추격을 해제합니다.
 
 ## 프레임 수명
 

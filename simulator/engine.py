@@ -6,6 +6,8 @@ import math
 import threading
 import uuid
 
+from . import replay, tag_game
+
 
 def number(value, low, high, name):
     value = float(value)
@@ -41,7 +43,9 @@ class World:
             self.logs = []
             self.trail = [[0.0, -3.35]]
             self.children = []
-            self.game = dict(phase='ready', touched_by=None, touched_at=None, escaped_ids=[], held=False)
+            self.replay = None
+            self.game = dict(mode='tag', phase='ready', touched_by=None, touched_at=None,
+                             escaped_ids=[], caught_ids=[], held=False, auto_chase=True, target_id=None)
             self.obstacles = [dict(x=-4.5, z=0.5, w=0.7, d=1.6), dict(x=4.5, z=0.5, w=0.7, d=1.6)]
             self.set_count(5)
             self.log('가상 환경 준비 · 실제 로봇에 연결하지 않습니다')
@@ -53,18 +57,22 @@ class World:
     def set_count(self, count):
         count = int(number(count, 1, 8, 'count'))
         with self.lock:
-            if self.game['phase'] in ('approaching', 'escaping'):
+            if self.replay is not None or self.game['phase'] in ('approaching', 'escaping', 'chasing'):
                 raise ValueError('진행 중인 게임에서는 인원을 바꿀 수 없습니다. 환경을 초기화하세요.')
             old = {c['id']: c for c in self.children}
             self.children = [old.get(i, dict(id=i, name=f'아이 {i+1}', x=(i-(count-1)/2)*0.95,
                 z=1.1+(i % 2)*0.95, heading=math.pi, mode='still', moving=False,
                 pace=0.48+(i % 3)*0.09, phase=i*1.7, color=self.palette[i], height=1.12+(i % 3)*0.08,
-                direction=-1, wave=False)) for i in range(count)]
+                direction=-1, wave=False, caught=False, speed=0.0, motion_time=i*.17, motion_kind='idle')) for i in range(count)]
 
     def set_child(self, child_id, mode):
         if mode not in ('still', 'walk', 'intermittent', 'wiggle'):
             raise ValueError('mode: still, walk, intermittent, wiggle')
         with self.lock:
+            if self.replay is not None:
+                raise ValueError('기록 재생에서는 아이별 행동을 바꿀 수 없습니다. 다른 놀이 모드를 시작하세요.')
+            if self.game['phase']=='chasing':
+                raise ValueError('술래잡기 중에는 아이들이 스스로 도망갑니다. 전체 잠깐 멈춤을 사용하세요.')
             if self.game['phase'] in ('escaping', 'finished'):
                 raise ValueError('터치 후에는 모두 출발선으로 도망갑니다. 새 게임에서 행동을 바꿔 주세요.')
             child = next((c for c in self.children if c['id'] == int(child_id)), None)
@@ -73,12 +81,39 @@ class World:
             child['mode'] = mode
             self.log(f"{child['name']} · {dict(still='멈춤',walk='걷기',intermittent='걷다 멈춤',wiggle='제자리 움직임')[mode]}")
 
-    def start_game(self):
+    def start_game(self, mode='tag', auto_chase=True, *, replay_count=16, clip_id='active'):
+        if mode not in ('tag','red_light','playground_a'):
+            raise ValueError('mode: tag, red_light, playground_a')
+        if mode=='playground_a':
+            recording=replay.load()
+            count=int(number(replay_count,1,len(recording.tracks),'replay_count'))
+            playback=replay.Playback(recording,clip_id,count)
+            with self.lock:
+                self.reset()
+                self.set_count(min(count,8))
+                templates=copy.deepcopy(self.children)
+                self.children=[]
+                for i,ident in enumerate(playback.ids):
+                    child=copy.deepcopy(templates[i%len(templates)])
+                    colors=self.palette+['#bc6645','#608455','#995d83','#4a8b96','#be9d3b','#6d6fa7','#96754c','#619c82']
+                    child.update(id=i,source_id=ident,name=f'기록 {ident}',color=colors[i%len(colors)],
+                                 phase=i*1.7,mode='walk',visible=False,trail=[],segment_id=None,display_scale=.6)
+                    self.children.append(child)
+                self.replay=playback
+                self.rate=8.0
+                self.game.update(mode=mode,phase='replaying',auto_chase=False,target_id=None)
+                playback.update(self)
+                self.log('Playground A 기록 재생 · 공간 맞춤 · 8× · 술래 역할/로봇 반응 없음')
+            return
         with self.lock:
-            count, rate = len(self.children), self.rate
+            count, rate = min(len(self.children),8), min(self.rate,4.0)
             self.reset()
             self.set_count(count)
             self.rate = rate
+            self.game['mode'] = mode
+            if mode=='tag':
+                tag_game.start(self,auto_chase)
+                return
             for i, c in enumerate(self.children):
                 c.update(x=(i-(count-1)/2)*.95, z=self.home_z, heading=math.pi,
                          home_x=(i-(count-1)/2)*.95, mode='walk', escaped=False, running=False)
@@ -89,12 +124,31 @@ class World:
 
     def hold_game(self, held):
         with self.lock:
+            if self.replay is not None:
+                self.game['held']=bool(held)
+                self.replay.update(self)
+                self.log('기록 재생 잠깐 멈춤' if held else '기록 재생 계속')
+                return
+            if self.game.get('mode')=='tag' and self.game['phase']=='chasing':
+                self.game['held'] = bool(held)
+                self.log('술래잡기 잠깐 멈춤' if held else '술래잡기 계속')
+                return
             if self.game['phase'] != 'approaching':
                 raise ValueError('아이들 접근을 멈추는 기능은 터치 전에만 사용할 수 있습니다')
             self.game['held'] = bool(held)
             self.log('아이들 접근 잠깐 멈춤' if held else '아이들 접근 계속')
 
+    def seek_replay(self, elapsed):
+        with self.lock:
+            if self.replay is None:
+                raise ValueError('Playground A 기록을 먼저 시작하세요')
+            elapsed=number(elapsed,0,self.replay.clip['duration'],'elapsed')
+            self.replay.seek(self,elapsed)
+
     def check_touch(self):
+        if self.game.get('mode')=='tag':
+            tag_game.check_catches(self)
+            return
         if self.game['phase'] != 'approaching':
             return
         touching = [c for c in self.children if math.hypot(c['x']-self.robot['x'], c['z']-self.robot['z']) <= self.touch_distance]
@@ -117,6 +171,12 @@ class World:
         return -math.sin(heading)*dx+math.cos(heading)*dz >= -1e-9
 
     def _advance_game_children(self, dt):
+        if self.replay is not None:
+            self.replay.update(self,dt)
+            return
+        if self.game.get('mode')=='tag':
+            tag_game.advance_children(self,dt)
+            return
         if self.game['phase'] == 'approaching':
             self.check_touch()
         # Touch is a whole-group transition; do not update only the touching child.
@@ -169,6 +229,7 @@ class World:
         angular = number(angular, -3.0, 3.0, 'angular_rps')
         seconds = number(seconds, 0.02, 30.0, 'seconds')
         with self.lock:
+            self.game['auto_chase'] = False
             self.finish_motion('superseded')
             command_id = uuid.uuid4().hex
             self.motion = dict(id=command_id, end=self.time+seconds, linear=linear, angular=angular, guard=bool(guard))
@@ -183,7 +244,7 @@ class World:
             dz = max(abs(z-b['z'])-b['d']/2, 0)
             distances.append(math.hypot(dx, dz))
         for c in self.children:
-            if c['id'] != exclude_child:
+            if c['id'] != exclude_child and c.get('visible',True):
                 distances.append(math.hypot(x-c['x'], z-c['z'])-0.22)
         return min(distances)
 
@@ -216,6 +277,8 @@ class World:
             game_active = self.game['phase'] != 'ready'
             if game_active:
                 self._advance_game_children(dt)
+                if not self.motion and self.replay is None:
+                    tag_game.advance_robot(self,dt)
             for c in ([] if game_active else self.children):
                 elapsed = self.time+c['phase']
                 moving = c['mode'] == 'walk' or (c['mode'] == 'intermittent' and elapsed % 5 < 2.7)
@@ -266,4 +329,5 @@ class World:
             return copy.deepcopy(dict(epoch=self.epoch,time=round(self.time,3),paused=self.paused,rate=self.rate,
                 robot=self.robot,children=self.children,obstacles=self.obstacles,distance=round(self.distance,3),
                 motion=self.motion,last_command=self.last_command,speech=self.speech,speech_id=self.speech_id,
-                logs=self.logs,trail=self.trail,ultrasonic=self.ultrasonic(),bounds=self.bounds,game=self.game))
+                logs=self.logs,trail=self.trail,ultrasonic=self.ultrasonic(),bounds=self.bounds,game=self.game,
+                replay=self.replay.snapshot() if self.replay is not None else None))
