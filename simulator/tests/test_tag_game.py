@@ -36,7 +36,6 @@ class TagTests(unittest.TestCase):
 
     def test_catch_affects_only_nearby_child_and_is_not_repeated(self):
         w=self.world;w.start_game(auto_chase=False)
-        w.game['held']=True
         c=w.children[0];c.update(x=0,z=w.robot['z']+.70)
         self.advance(.5)
         self.assertEqual(w.game['caught_ids'],[0])
@@ -71,7 +70,7 @@ class TagTests(unittest.TestCase):
         self.assertIsNotNone(w.game['target_id'])
         w.command(0,1,.1)
         self.assertFalse(w.game['auto_chase'])
-        self.advance(.2)
+        self.advance(.6)  # Allow bounded deceleration after manual takeover.
         stopped=dict(w.robot)
         self.advance(.5)
         self.assertEqual(w.robot,stopped)

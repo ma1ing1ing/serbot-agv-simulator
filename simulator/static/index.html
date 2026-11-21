@@ -27,17 +27,18 @@
 </header>
 <main>
   <div class="page-heading"><h1>시뮬.</h1><div class="heading-actions"><button id="reset" class="button"><svg><use href="#i-reset"/></svg>환경 초기화</button><button id="pause" class="button primary"><svg><use href="#i-pause"/></svg><span>일시정지</span></button></div></div>
+  <div id="stepped-notice" class="note stepped-notice" role="status" hidden><span>ⓘ</span><p>학습 단계 실행 중 · Python의 step() 호출로만 시간이 진행됩니다. 화면은 관찰용이며 학습 영상과 자동 동기화되지 않습니다.</p><button id="realtime-resume" class="button">실시간으로 돌아가기</button></div>
   <section class="workspace">
     <aside class="left-panel panel">
       <div class="section-title"><span>가상 환경</span><span class="tiny-badge">LOCAL</span></div>
-      <div class="room-card"><span class="room-icon">✳</span><div><strong>햇살 놀이실</strong><small>12 × 10 m · 실내 공간</small></div></div>
+      <div class="room-card"><span class="room-icon">✳</span><div><strong>장애물 없는 놀이공간</strong><small>11 × 9 m · 실내 공간</small></div></div>
       <div class="control-label"><label for="people-count">가상 아이들</label><span id="people-value">5명</span></div>
       <input id="people-count" aria-label="가상 아이들 수" type="range" min="1" max="8" value="5"><div class="range-ticks"><span>1명</span><span>8명</span></div>
       <div class="control-label speed-label"><label for="rate">시뮬레이션 속도</label></div>
       <select id="rate"><option value="0.5">0.5× · 천천히</option><option value="1" selected>1× · 실제 시간</option><option value="2">2× · 빠르게</option><option value="4">4× · 빠르게</option></select>
       <hr><div class="section-title"><span>아이들과 놀이</span><svg><use href="#i-people"/></svg></div>
       <label class="control-label" for="game-mode">놀이 선택</label>
-      <select id="game-mode"><option value="tag">술래잡기</option><option value="red_light">무궁화꽃이 피었습니다</option><option value="playground_a">Playground A · 위치 기록 재생</option></select>
+      <select id="game-mode"><option value="tag">술래잡기</option><option value="freeze_tag">얼음땡</option><option value="red_light">무궁화꽃이 피었습니다</option><option value="cops_robbers" disabled>경찰과 도둑 · 구현 예정</option><option value="playground_a">Playground A · 위치 기록 재생</option></select>
       <div id="replay-controls" class="replay-controls" hidden>
         <p id="replay-status" role="status">위치 기록 확인 중</p>
         <label for="replay-clip">재생 구간</label><select id="replay-clip"><option value="active">움직임 관찰 · 2분</option></select>
@@ -46,7 +47,8 @@
         <input id="replay-time" aria-label="기록 재생 위치" type="range" min="0" max="120" step="0.1" value="0" disabled>
         <p>놀이실 크기에 맞춘 경로입니다. 원본 거리·시간 단위는 미확인입니다.</p>
       </div>
-      <label id="auto-chase-control" class="auto-chase"><input id="auto-chase" type="checkbox" checked> 로봇 자동 추격</label>
+      <label id="auto-chase-control" class="auto-chase"><input id="auto-chase" type="checkbox" checked> 로봇 자동 제어</label>
+      <div id="game-options" class="game-options"><label for="child-behavior">아이들 행동 유형</label><select id="child-behavior"><option value="mixed">혼합</option><option value="cautious">조심스러움</option><option value="playful">활발함</option><option value="helper">친구 구조 선호</option></select><label>난수 시드 <input id="game-seed" type="number" min="0" max="4294967295" step="1" value="0"></label><label>제한 시간(초) <input id="game-limit" type="number" min="1" max="3600" value="120"></label><label><input id="game-record" type="checkbox"> 플레이 기록 저장</label><p id="record-status" role="status">기록 저장을 켜면 플레이를 파일로 남깁니다.</p><button id="game-finish" disabled>게임 종료</button></div>
       <div id="game-card" class="game-card" data-phase="ready"><span id="game-stage">게임 대기</span><strong id="game-title">로봇 술래를 피해 도망가요</strong><p id="game-detail">가까우면 달리고, 멀어지면 천천히 걸어요. 벽과 다른 아이를 피해 방향을 바꿉니다.</p><div class="game-steps"><span data-step="approaching">① 도망가기</span><b>→</b><span data-step="escaping">② 가까우면 잡힘</span><b>→</b><span data-step="finished">③ 모두 잡으면 끝</span></div></div>
       <div class="bulk-actions game-actions"><button id="game-start">게임 시작</button><button id="game-hold" disabled>접근 잠깐 멈춤</button></div>
       <p id="game-helper" class="helper">로봇이 다가오면 아이들이 방향을 바꿔 도망가요.</p>

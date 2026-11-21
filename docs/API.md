@@ -53,7 +53,7 @@ curl http://127.0.0.1:8767/api/camera.jpg --output camera.jpg
 {
   "mode": "tag",
   "seed": 42,
-  "scenario": "standard",
+  "scenario": "open",
   "count": 5,
   "settings": {"time_limit": 10},
   "observation_mode": "oracle",
@@ -188,3 +188,5 @@ LiDAR의 각도 0은 로봇의 정면이며, 양의 각도는 왼쪽입니다. �
 | 503 | 사용할 수 있는 카메라 프레임 없음 |
 
 `GET /api/session`, `POST /api/camera/frame`은 브라우저 렌더러용 내부 프로토콜입니다. 일반 AI 프로그램은 영상을 읽기만 하면 됩니다. 렌더러 토큰은 서버 실행 시 생성되는 임시 값이며, 실제 로봇 인증 정보가 아닙니다.
+
+기본 환경은 장애물 없는 `open` 공간입니다. 게임 시작에서 `scenario`를 생략하거나 null로 보내도 `open`을 사용하고 학습 초기화도 기본 `open`입니다. 기존 시나리오 인자는 프로그램 호환을 위해 유지하지만 화면에 환경 배치 선택 메뉴는 제공하지 않습니다.

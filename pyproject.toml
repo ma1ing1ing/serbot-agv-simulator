@@ -4,11 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "serbot-agv-simulator"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local 3D SerBot AGV simulator with virtual children, camera frames, and a Python control API."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
+
+[project.optional-dependencies]
+training = ["gymnasium>=1.0,<2", "numpy>=1.26"]
 
 [project.scripts]
 serbot-sim = "simulator.server:main"

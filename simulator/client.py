@@ -49,6 +49,33 @@ class SimRobot:
     def status(self):
         return self._request('/api/state')
 
+    def observation(self, mode='oracle'):
+        """Versioned controller input; status() remains evaluation ground truth."""
+        return self._request('/api/observation?'+urlencode({'mode':mode}))
+
+    def set_detections(self, detections):
+        return self._request('/api/detections',{'detections':detections})
+
+    def training_reset(self, **options):
+        result=self._request('/api/training/reset',options)
+        self._training_epoch=result['info']['epoch']
+        return result
+
+    def training_step(self, action):
+        value=action.to_dict() if hasattr(action,'to_dict') else action
+        body={'action':value}
+        if getattr(self,'_training_epoch',None) is not None:
+            body['epoch']=self._training_epoch
+        return self._request('/api/training/step',body)
+
+    def training_close(self):
+        body={}
+        if getattr(self,'_training_epoch',None) is not None:
+            body['epoch']=self._training_epoch
+        result=self._request('/api/training/close',body)
+        self._training_epoch=None
+        return result
+
     def camera_frame(self, output_path=None):
         """Actual 640×480 virtual camera JPEG; a fresh browser renderer is required."""
         frame=self._request('/api/camera.jpg',binary=True)
@@ -87,16 +114,27 @@ class SimRobot:
     def stop(self):
         return self._request('/api/robot/stop',{})
 
-    def start_game(self, mode='tag', *, auto_chase=True):
-        """Start tag (default) or the original 'red_light' game.
+    def start_game(self, mode='tag', *, auto_chase=True, seed=0, settings=None, record=False, scenario='open', physics=None, observation_mode='oracle'):
+        """Start tag, freeze_tag or red_light.
 
         Manual velocity commands and stop() disable automatic robot pursuit.
         Set auto_chase=False when an external AI will control the robot.
         """
-        return self._request('/api/game/start',{'mode':mode,'auto_chase':auto_chase})
+        return self._request('/api/game/start',dict(mode=mode,auto_chase=auto_chase,seed=seed,settings=settings,record=record,scenario=scenario,physics=physics,observation_mode=observation_mode))
+
+    def finish_game(self):
+        """Stop the current game and finalize an enabled recording."""
+        return self._request('/api/game/finish',{})
+
+    def record_observation(self, value, *, source='external'):
+        """Attach actual model input/detections or a saved camera frame reference."""
+        return self._request('/api/episode/observation',dict(value=value,source=source))
+
+    def episode(self):
+        return self._request('/api/episode')
 
     def auto_chase(self, enabled=True):
-        """Enable/disable the rule-based robot demonstration during tag."""
+        """Enable/disable the rule-based robot demonstration in any play mode."""
         return self._request('/api/game/auto',{'enabled':enabled})
 
     def start_replay(self, *, count=16, clip_id='active'):
@@ -108,7 +146,7 @@ class SimRobot:
         return self._request('/api/replay/seek',{'elapsed':elapsed})
 
     def hold_children(self, held=True):
-        """Hold/resume tag participants, or approaching children in red_light."""
+        """Hold/resume all game participants and the game timer."""
         return self._request('/api/game/hold',{'held':held})
 
     @staticmethod

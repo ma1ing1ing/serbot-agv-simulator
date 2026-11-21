@@ -8,6 +8,8 @@ let state = null, publisher = '', view = 'orbit', lastPoll = 0, lastUpload = 0, 
 let published = 0, fpsStart = performance.now(), lastSpeech = 0, toastTimer, childIds = '', logSignature = '';
 const childModels = new Map();
 const childPaths = new Map();
+const obstacleModels = new Map();
+let obstacleSignature='';
 let scene, renderer, sensorRenderer, camera, sensorCamera, controls, robot, pathLine, fovGroup, robotScreen;
 let ready = false;
 let motionPack=null, stateReceivedAt=0, lastAnimationAt=0;
@@ -92,19 +94,6 @@ function createRoom() {
     // Place muntins on the interior side; they are visible from the robot camera.
     box(scene,1.42,.05,.04,'#fdf9e9',x,2.15,4.53);
     box(scene,.05,1.36,.04,'#fdf9e9',x,2.15,4.53);
-  }
-  for(const x of [-4.5,4.5]) {
-    box(scene,.7,.38,1.6,'#c5a984',x,.19,.5);
-    box(scene,.73,.10,1.63,'#dbc9a8',x,.44,.5);
-    box(scene,.16,.5,1.6,'#c3a681',x+(x<0?-.27:.27),.58,.5);
-  }
-  for(const [x,z] of [[-5,3.9],[5,3.9]]) {
-    cylinder(scene,.23,.18,.35,'#c6ac84',x,.175,z);
-    cylinder(scene,.03,.03,.65,'#73835f',x,.55,z);
-    for(let i=0;i<7;i++) {
-      const leaf=sphere(scene,.23,'#879d6d',x+Math.sin(i*2.4)*.2,.7+(i%3)*.12,z+Math.cos(i*2.4)*.17);
-      leaf.scale.set(.6,1.2,.7);leaf.rotation.z=i;
-    }
   }
   const rug=cylinder(scene,.9,.9,.006,'#e8d9b2',0,.014,-3.35);rug.receiveShadow=true;
 }
@@ -223,6 +212,7 @@ function setView(mode) {
 }
 function updateWorld() {
   if(!state||!ready) return;
+  updateObstacles();
   const revision=state.replay?.revision??-1;
   const discontinuity=renderedEpoch!==state.epoch||renderedRevision!==revision;
   if(discontinuity) {
@@ -238,6 +228,7 @@ function updateWorld() {
     if(!model) {model=createChild(child);childModels.set(child.id,model);}
     model.visible=child.visible!==false;
     model.userData.caughtRing.visible=Boolean(child.caught);
+    model.userData.caughtRing.material.color.set(child.state==='frozen'?'#509ddd':'#dc655e');
     if(state.replay) {
       let line=childPaths.get(child.id);
       if(!line) {line=new THREE.Line(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:child.color,transparent:true,opacity:.8}));line.layers.set(1);scene.add(line);childPaths.set(child.id,line);}
@@ -258,12 +249,27 @@ function updateWorld() {
   if(view==='robot') {camera.position.copy(eye);camera.up.set(0,1,0);camera.lookAt(target);camera.fov=75;camera.updateProjectionMatrix();}
   else if(camera.fov!==43) {camera.fov=43;camera.updateProjectionMatrix();}
 }
+function updateObstacles() {
+  const obstacles=state.obstacles||[];
+  const signature=JSON.stringify(obstacles.map(({x,z,w,d})=>[x,z,w,d]));
+  if(signature===obstacleSignature) return;
+  for(const model of obstacleModels.values()) {scene.remove(model);dispose(model);}
+  obstacleModels.clear();obstacleSignature=signature;
+  obstacles.forEach((obstacle,index)=>{
+    const group=new THREE.Group();group.position.set(obstacle.x,0,obstacle.z);
+    // The visible footprint matches the rectangle used by physics and sensors.
+    box(group,obstacle.w,.6,obstacle.d,'#c5a984',0,.3,0);
+    box(group,obstacle.w,.08,obstacle.d,'#dbc9a8',0,.64,0);
+    scene.add(group);obstacleModels.set(index,group);
+  });
+}
 const footPosition=new THREE.Vector3();
 function animateChildren(now) {
   if(!state) return;
   const dt=Math.min(.1,Math.max(0,(now-lastAnimationAt)/1000));lastAnimationAt=now;
-  const elapsed=state.paused?0:Math.min(.12,Math.max(0,(now-stateReceivedAt)/1000))*state.rate;
-  const alpha=state.paused?1:1-Math.exp(-dt*18);
+  const stepped=state.execution_mode==='stepped';
+  const elapsed=state.paused||stepped?0:Math.min(.12,Math.max(0,(now-stateReceivedAt)/1000))*state.rate;
+  const alpha=state.paused||stepped?1:1-Math.exp(-dt*18);
   for(const child of state.children) {
     const model=childModels.get(child.id);if(!model) continue;
     if(child.visible===false) continue;
@@ -272,7 +278,7 @@ function animateChildren(now) {
     const turn=Math.atan2(Math.sin(child.heading-model.rotation.y),Math.cos(child.heading-model.rotation.y));
     model.rotation.y+=turn*alpha;
     const kind=child.motion_kind==='run'||child.running?'run':child.motion_kind==='jog'?'jog':'walk';
-    const time=(state.game.mode==='tag'||state.replay)&&state.game.phase!=='ready'?child.motion_time+(child.moving?elapsed*(child.speed/(kind==='run'?.85:kind==='jog'?.62:.44)):0):state.time+elapsed+child.phase;
+    const time=(child.motion_time!==undefined||state.replay)&&state.game.phase!=='ready'?child.motion_time+(child.moving?elapsed*(child.speed/(kind==='run'?.85:kind==='jog'?.62:.44)):0):state.time+elapsed+child.phase;
     const target=child.moving?sampleMotion(motionPack,kind,time):[0,0,.05,.05,0,0,-.15,-.15,0];
     const rig=model.userData;
     rig.pose=rig.pose.map((v,j)=>v+(target[j]-v)*alpha);
@@ -324,7 +330,12 @@ async function poll() {
   try {
     const previousEpoch=state?.epoch;
     state=await api('/api/state');stateReceivedAt=performance.now();
-    if(state.epoch!==previousEpoch&&state.game.phase!=='ready') $('#game-mode').value=state.game.mode;
+    if(state.epoch!==previousEpoch&&state.game.phase!=='ready') {
+      $('#game-mode').value=state.game.mode;
+      const behaviors=new Set(state.children.map(child=>child.behavior_type).filter(Boolean));
+      $('#child-behavior').value=behaviors.size===1?[...behaviors][0]:'mixed';
+      if(Number.isInteger(state.game.seed)) $('#game-seed').value=state.game.seed;
+    }
     dom.connection.classList.remove('offline');dom.connection.innerHTML='<i></i> 로컬 시뮬레이터 연결됨';
     updateWorld();updateUI();
   } catch(e) {dom.connection.classList.add('offline');dom.connection.innerHTML='<i></i> 서버 연결 끊김';dom['camera-status'].textContent='연결 끊김';}
@@ -343,32 +354,43 @@ function updateUI() {
   if(document.activeElement!==$('#people-count')) $('#people-count').value=state.children.length;
   $('#people-value').textContent=state.children.length+'명';
   const game=state.game, phase=game.phase;
-  const isTag=phase==='ready'?$('#game-mode').value==='tag':game.mode==='tag';
+  const selected=phase==='ready'?$('#game-mode').value:game.mode;
+  const isTag=selected==='tag';
+  const isReplay=selected==='playground_a';
   const active=['approaching','escaping','chasing','replaying'].includes(phase);
-  const isReplay=game.mode==='playground_a'||(phase==='ready'&&$('#game-mode').value==='playground_a');
-  const allWatched=state.children.every(c=>c.watched);
+  const names={tag:'술래잡기',freeze_tag:'얼음땡',red_light:'무궁화꽃이 피었습니다'};
+  const details={tag:'로봇을 피해 도망갑니다. 잡히면 멈춥니다.',freeze_tag:'잡히면 얼음! 친구가 가까이 머무르면 다시 움직여요.',red_light:'로봇이 돌아서면 접근하고 바라보면 정지해요. 터치하면 전원 도망갑니다.'};
+  const stages={ready:'게임 대기',chasing:'놀이 진행 중',approaching:'접근 · 시선 정지',escaping:'터치 후 추격',finished:'게임 완료'};
   $('#people-count').disabled=active||isReplay;
   $('#people-count').max=isReplay?16:8;
   $('.range-ticks span:last-child').textContent=isReplay?'16명':'8명';
   $('#game-mode').disabled=active;
-  $('#auto-chase-control').hidden=!isTag;
+  $('#auto-chase-control').hidden=isReplay;
   $('#auto-chase').disabled=false;
-  if(game.mode==='tag'&&phase==='chasing') $('#auto-chase').checked=game.auto_chase;
+  if(active&&!isReplay) $('#auto-chase').checked=game.auto_chase;
+  $('#game-options').hidden=isReplay;
+  $('#game-seed').disabled=active;$('#game-limit').disabled=active;$('#game-record').disabled=active;
+  $('#child-behavior').disabled=active;
+  $('#game-finish').disabled=!active||isReplay;
+  const ep=state.episode;
+  $('#record-status').textContent=ep?.recording?`${ep.closed?'저장 완료':'기록 중'} · ${ep.samples}개 시점 · ${ep.directory}`:'기록 저장을 켜면 플레이를 파일로 남깁니다.';
   $('#game-card').dataset.phase=phase;
-  $('#game-stage').textContent=isTag?(phase==='chasing'?(game.held?'잠깐 멈춤':'술래잡기 진행 중'):phase==='finished'?'게임 완료':'게임 대기'):({ready:'게임 대기',approaching:game.held?'접근 일시정지':allWatched?'로봇 시선 · 정지':'로봇 뒤쪽에서 접근',escaping:'터치! 모두 도망',finished:'한 게임 완료'})[phase];
-  $('#game-title').textContent=isTag?(phase==='finished'?'모두 잡았어요!':phase==='ready'?'로봇 술래를 피해 도망가요':`잡힌 아이 ${game.caught_ids.length} / ${state.children.length}명`):({ready:'시선에 따라 접근 · 정지',approaching:game.held?'접근 일시정지':allWatched?'아이들 정지':'아이들 접근',escaping:`아이 ${game.touched_by+1} 터치 · 전원 도망`,finished:'전원 출발선 도착'})[phase];
-  $('#game-detail').textContent=isTag?'로봇이 다가오면 달리고, 멀어지면 천천히 걸어요. 벽과 다른 아이를 피해 방향을 바꿉니다.':({ready:'로봇이 뒤돌면 접근, 바라보면 정지. 한 명이 터치하면 전원 도망.',approaching:'로봇 전방에 있는 아이는 멈추고, 뒤쪽에 있는 아이만 접근합니다.',escaping:`전원 도망 중 · 출발선 도착 ${game.escaped_ids.length}/${state.children.length}명`,finished:`아이 ${game.touched_by+1} 터치 · 새 게임으로 다시 시작`})[phase];
+  $('#game-stage').textContent=game.held?'놀이 잠깐 멈춤':stages[phase]||phase;
+  const counts=selected==='freeze_tag'?`얼음 ${game.frozen_ids?.length||0} / ${state.children.length}명`:`잡힘 ${game.caught_ids.length} / ${state.children.length}명`;
+  $('#game-title').textContent=phase==='ready'?(names[selected]||'위치 기록 재생'):`${names[selected]||''} · ${counts}`;
+  $('#game-detail').textContent=details[selected]||'';
   $('#game-start').textContent=phase==='ready'?'게임 시작':'새 게임';
   $('#game-start').disabled=false;
-  $('#game-hold').disabled=phase!=='approaching'&&phase!=='chasing';
-  $('#game-hold').textContent=isTag?(game.held?'놀이 계속하기':'놀이 잠깐 멈춤'):(game.held?'접근 계속하기':'접근 잠깐 멈춤');
-  const steps=document.querySelectorAll('[data-step]');
-  steps.forEach((el,i)=>{el.textContent=(isTag?['① 도망가기','② 가까우면 잡힘','③ 모두 잡으면 끝']:['① 접근 · 정지','② 터치 · 도망','③ 도착'])[i];el.classList.toggle('active',isTag?(i===0&&phase==='chasing')||(i===2&&phase==='finished'):el.dataset.step===phase);});
-  $('#game-helper').textContent=isTag?'잡힌 아이는 붉은 표시와 함께 멈춰요.':'터치 전에는 아이별 행동을 조절할 수 있어요.';
-  $('#game-note').textContent=isTag?'자동 추격을 켜면 바로 관찰할 수 있어요. 수동 버튼이나 Python 명령을 사용하면 자동 추격이 해제됩니다.':'터치 전에는 로봇 전방에서 정지, 뒤쪽에서 접근합니다. 터치 후에는 전원 도망갑니다.';
+  $('#game-hold').disabled=!active;
+  $('#game-hold').textContent=game.held?'놀이 계속하기':'놀이 잠깐 멈춤';
+  const labels=selected==='freeze_tag'?['① 도망','② 얼음 · 구조','③ 전원 얼음']:selected==='red_light'?['① 접근 · 정지','② 터치 · 도망','③ 추격 종료']:['① 도망','② 잡힘','③ 전원 잡힘'];
+  document.querySelectorAll('[data-step]').forEach((el,i)=>{el.textContent=labels[i];el.classList.toggle('active',i===(phase==='finished'?2:phase==='escaping'?1:0));});
+  $('#game-helper').textContent='아이마다 속도·반응 시간·체력·구조 성향이 달라요.';
+  $('#game-note').textContent='자동 제어는 위치를 아는 규칙 시연입니다. 수동 주행이나 Python 명령을 보내면 해제됩니다.';
+  const reasons={all_caught:'모두 잡았습니다',all_frozen:'모두 얼음 상태입니다',time_limit:'제한 시간이 끝났습니다',pursuit_complete:'추격이 끝났습니다',all_eliminated:'모두 탈락했습니다',user_stopped:'게임을 종료했습니다'};
   const announcement=$('#game-announcement');announcement.hidden=phase!=='escaping'&&phase!=='finished';
   announcement.classList.toggle('finished',phase==='finished');
-  announcement.textContent=phase==='escaping'?`아이 ${game.touched_by+1} 터치! 모두 출발선으로 도망가요!`:isTag?'모두 잡았어요 · 게임 완료':'전원 출발선 도착 · 게임 완료';
+  announcement.textContent=phase==='finished'?(reasons[game.end_reason]||'게임 종료'):'터치! 출발선으로 도망가요!';
   updateReplayUI(isReplay);
   if(state.replay&&$('#game-mode').value!=='playground_a') $('#game-start').textContent='선택한 놀이 시작';
   if(document.activeElement!==$('#rate')) $('#rate').value=state.rate;
@@ -389,10 +411,11 @@ function updateUI() {
     const el=$(`[data-child="${c.id}"]`);
     if(el&&document.activeElement!==el)el.value=c.mode;
     if(el) {
-      el.disabled=phase==='escaping'||phase==='finished'||phase==='chasing';
+      el.disabled=active||phase==='finished';
       el.querySelector('[value="walk"]').textContent=isTag&&phase!=='ready'?(c.caught?'잡힘':c.running?'달리기':c.motion_kind==='jog'?'조깅':c.resting?'잠깐 쉬기':'걷기'):phase==='escaping'?'도망가기':phase==='approaching'&&c.watched?'시선 · 멈춤':'걷기';
       el.querySelector('[value="still"]').textContent=c.escaped?'출발선 도착':'멈춤';
       el.closest('.child-row').classList.toggle('caught',Boolean(c.caught));
+      el.closest('.child-row').querySelector('.child-name').textContent=c.name+(c.state?' · '+({free:'도망',rescuing:'구조 중',frozen:'얼음',eliminated:'탈락',caught:'잡힘',approaching:'접근',stopped:'정지',escaping:'도망',escaped:'도착'}[c.state]||c.state):'');
       if(state.replay) {
         el.disabled=true;
         el.querySelector('[value="walk"]').textContent=c.visible===false?'기록 없음':c.moving?'이동 중':'멈춤';
@@ -411,6 +434,17 @@ function updateUI() {
     lastSpeech=state.speech_id;$('#speech').textContent=state.speech;$('#speech').hidden=!state.speech;
     if(state.speech&&$('#audio').checked&&'speechSynthesis' in window) {speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(state.speech);utterance.lang='ko-KR';speechSynthesis.speak(utterance);}
   }
+  updateExecutionMode();
+}
+function updateExecutionMode() {
+  const stepped=state.execution_mode==='stepped';
+  $('#stepped-notice').hidden=!stepped;
+  $('#realtime-resume').disabled=!stepped;
+  for(const id of ['reset','pause','rate']) $('#'+id).disabled=stepped;
+  document.querySelectorAll('[data-jog]').forEach(button=>button.disabled=stepped);
+  if(!stepped) return;
+  for(const id of ['people-count','game-mode','auto-chase','game-start','game-hold','game-seed','game-limit','game-record','child-behavior','replay-clip','replay-count','replay-time']) $('#'+id).disabled=true;
+  document.querySelectorAll('[data-child]').forEach(select=>select.disabled=true);
 }
 function updateReplayUI(selected) {
   const info=state.replay, game=state.game;
@@ -456,12 +490,16 @@ $('#people-count').addEventListener('change',e=>act('/api/world/config',{count:N
 $('#game-start').addEventListener('click',async()=>{
   const mode=$('#game-mode').value;
   await act('/api/game/start',{mode,auto_chase:$('#auto-chase').checked,
-    replay_count:Number($('#replay-count').value),clip_id:$('#replay-clip').value||'active'});
+    replay_count:Number($('#replay-count').value),clip_id:$('#replay-clip').value||'active',
+    seed:Number($('#game-seed').value),scenario:'open',
+    settings:{time_limit:Number($('#game-limit').value),child_behavior:$('#child-behavior').value},record:mode!=='playground_a'&&$('#game-record').checked});
   if(mode==='playground_a'&&state?.replay) setView('top');
 });
 $('#replay-time').addEventListener('change',e=>act('/api/replay/seek',{elapsed:Number(e.target.value)}));
 $('#game-mode').addEventListener('change',()=>state&&updateUI());
-$('#auto-chase').addEventListener('change',e=>{if(state?.game.phase==='chasing')act('/api/game/auto',{enabled:e.target.checked});});
+$('#auto-chase').addEventListener('change',e=>{if(state&&!state.replay&&!['ready','finished'].includes(state.game.phase))act('/api/game/auto',{enabled:e.target.checked});});
+$('#game-finish').addEventListener('click',()=>act('/api/game/finish',{}));
+$('#realtime-resume').addEventListener('click',()=>act('/api/training/close',{}));
 $('#game-hold').addEventListener('click',()=>state&&act('/api/game/hold',{held:!state.game.held}));
 $('#robot-stop').addEventListener('click',()=>act('/api/robot/stop',{}));
 document.querySelectorAll('[data-jog]').forEach(button=>button.addEventListener('click',()=>{const d=button.dataset.jog;act('/api/robot/command',{linear_mps:d==='forward'?.2:d==='backward'?-.2:0,angular_rps:d==='left'?1:d==='right'?-1:0,seconds:.7,guard:true});}));

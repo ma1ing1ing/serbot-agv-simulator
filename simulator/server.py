@@ -17,6 +17,7 @@ if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from simulator.engine import World, number
 from simulator import replay
+from simulator.environment import PlayEnv
 
 STATIC = Path(__file__).parent/'static'
 
@@ -53,6 +54,8 @@ class SimulationServer(ThreadingHTTPServer):
 
     def server_close(self):
         self.closed.set()
+        if hasattr(self, 'world'):
+            self.world.finish_game('server_closed')
         with self.frame_lock:
             self.frame_lock.notify_all()
         super().server_close()
@@ -95,10 +98,19 @@ class Handler(BaseHTTPRequestHandler):
             state=self.server.world.snapshot()
             state['camera']=self.server.camera_meta()
             self.send(state)
+        elif path=='/api/observation':
+            try:
+                self.send(self.server.world.observe(parse_qs(parsed.query).get('mode',['oracle'])[0]))
+            except ValueError as exc:
+                self.send({'error':str(exc)},400)
         elif path=='/api/session':
             self.send(dict(publisher=self.server.publisher))
         elif path=='/api/replay':
             self.send(replay.metadata())
+        elif path=='/api/episode':
+            with self.server.world.lock:
+                episode=self.server.world.episode
+                self.send(episode.metadata() if episode else {'recording':False})
         elif path=='/api/camera/meta':
             self.send(self.server.camera_meta())
         elif path=='/api/camera.jpg':
@@ -186,65 +198,131 @@ class Handler(BaseHTTPRequestHandler):
             if 'application/json' not in self.headers.get('Content-Type',''):
                 raise ValueError('Content-Type: application/json이 필요합니다')
             data=json.loads(raw)
-            w=self.server.world
-            if path=='/api/robot/command':
-                self.send(w.command(data.get('linear_mps',0),data.get('angular_rps',0),data.get('seconds',.5),data.get('guard',True)))
-            elif path=='/api/robot/stop':
-                with w.lock:
-                    w.game['auto_chase']=False
-                    w.finish_motion('stopped')
-                    w.log('로봇 정지')
-                self.send({'ok':True})
-            elif path=='/api/robot/say':
-                text=str(data.get('text',''))[:200]
-                with w.lock:
-                    w.speech=text
-                    w.speech_id+=1
-                    w.log('로봇 음성 출력 · '+text)
-                self.send({'ok':True})
-            elif path=='/api/world/reset':
-                w.reset()
-                self.send({'ok':True})
-            elif path=='/api/game/start':
-                w.start_game(data.get('mode','tag'),data.get('auto_chase',True),
-                             replay_count=data.get('replay_count',16),clip_id=data.get('clip_id','active'))
-                self.send({'ok':True,'game':w.snapshot()['game']})
-            elif path=='/api/replay/seek':
-                w.seek_replay(data.get('elapsed',0))
-                self.send({'ok':True,'replay':w.snapshot()['replay']})
-            elif path=='/api/game/auto':
-                with w.lock:
-                    if w.game.get('mode')!='tag' or w.game['phase']!='chasing':
-                        raise ValueError('진행 중인 술래잡기에서만 자동 추격을 켤 수 있습니다')
-                    w.finish_motion('superseded')
-                    w.game['auto_chase']=bool(data.get('enabled',True))
-                self.send({'ok':True,'game':w.snapshot()['game']})
-            elif path=='/api/game/hold':
-                w.hold_game(data.get('held',True))
-                self.send({'ok':True,'game':w.snapshot()['game']})
-            elif path=='/api/world/config':
-                with w.lock:
-                    paused=bool(data.get('paused',w.paused))
-                    rate=number(data.get('rate',w.rate),.25,16 if w.replay is not None else 4,'rate')
-                    count=int(number(data.get('count',len(w.children)),1,16 if w.replay is not None else 8,'count'))
-                    if count!=len(w.children):
-                        w.set_count(count)
-                    w.paused,w.rate=paused,rate
-                self.send({'ok':True})
-            elif path=='/api/children':
-                mode=data.get('mode','still')
-                if data.get('id') is None:
-                    for c in list(w.snapshot()['children']):
-                        w.set_child(c['id'],mode)
-                else:
-                    w.set_child(data['id'],mode)
-                self.send({'ok':True})
-            else:
-                self.send({'error':'Not found'},404)
+            if not isinstance(data,dict):
+                raise ValueError('JSON 객체가 필요합니다')
+            with self.server.world.lock:
+                self._dispatch_post(path,data)
         except (ValueError,TypeError,KeyError,json.JSONDecodeError) as exc:
             self.send({'error':str(exc)},400)
         except (BrokenPipeError,ConnectionResetError):
             pass
+        except OSError:
+            self.send({'error':'저장 공간과 기록 폴더의 쓰기 권한을 확인하세요.'},500)
+
+    def _dispatch_post(self,path,data):
+        w=self.server.world
+        training_routes = {'/api/training/reset','/api/training/step','/api/training/close',
+                           '/api/robot/stop','/api/detections','/api/episode/observation','/api/game/finish'}
+        if w.execution_mode == 'stepped' and path not in training_routes:
+            self.send({'error':'학습 단계 실행 중입니다. training_close() 후 실시간 제어를 사용하세요.'},409)
+            return
+        if path=='/api/training/reset':
+            env=PlayEnv(data.get('mode','tag'),observation_mode=data.get('observation_mode','oracle'),
+                        dt=data.get('dt',.1),physics=data.get('physics'),world=w)
+            observation,info=env.reset(seed=data.get('seed',0),scenario=data.get('scenario','open'),
+                count=data.get('count',5),settings=data.get('settings'),record=data.get('record',False))
+            self.server.training_env=env
+            self.send(dict(observation=observation,info=info))
+            return
+        if path=='/api/training/step':
+            env=getattr(self.server,'training_env',None)
+            if env is None:
+                raise ValueError('training_reset()으로 먼저 시작하세요')
+            if data.get('epoch',w.epoch) != w.epoch:
+                self.send({'error':'재설정 이전의 학습 요청입니다'},409)
+                return
+            observation,reward,terminated,truncated,info=env.step(data.get('action'))
+            self.send(dict(observation=observation,reward=reward,terminated=terminated,truncated=truncated,info=info))
+            return
+        if path=='/api/training/close':
+            if data.get('epoch',w.epoch) != w.epoch:
+                self.send({'error':'재설정 이전의 학습 종료 요청입니다'},409)
+                return
+            env=getattr(self.server,'training_env',None)
+            if env is not None:
+                env.close()
+            w.reset()
+            self.server.training_env=None
+            self.send({'ok':True,'execution_mode':w.execution_mode})
+            return
+        if path=='/api/detections':
+            env=getattr(self.server,'training_env',None)
+            if env is not None and env.active:
+                env.set_detections(data.get('detections'))
+            else:
+                w.set_detections(data.get('detections'))
+            self.send({'ok':True})
+            return
+        if path=='/api/robot/command':
+            self.send(w.command(data.get('linear_mps',0),data.get('angular_rps',0),data.get('seconds',.5),data.get('guard',True)))
+        elif path=='/api/robot/stop':
+            with w.lock:
+                w.game['auto_chase']=False
+                w.finish_motion('stopped')
+                w.emit('robot_stop',actor='robot')
+                w.log('로봇 정지')
+                if w.execution_mode == 'stepped':
+                    w.finish_game('emergency_stop')
+                    env=getattr(self.server,'training_env',None)
+                    if env is not None:env.active=False
+            self.send({'ok':True})
+        elif path=='/api/robot/say':
+            text=str(data.get('text',''))[:200]
+            with w.lock:
+                w.speech=text
+                w.speech_id+=1
+                w.log('로봇 음성 출력 · '+text)
+            self.send({'ok':True})
+        elif path=='/api/world/reset':
+            w.reset()
+            self.send({'ok':True})
+        elif path=='/api/game/start':
+            w.start_game(data.get('mode','tag'),data.get('auto_chase',True),
+                         replay_count=data.get('replay_count',16),clip_id=data.get('clip_id','active'),
+                         seed=data.get('seed',0),settings=data.get('settings'),record=data.get('record',False),
+                         scenario=data.get('scenario','open'),physics=data.get('physics'),observation_mode=data.get('observation_mode','oracle'))
+            self.send({'ok':True,'game':w.snapshot()['game']})
+        elif path=='/api/replay/seek':
+            w.seek_replay(data.get('elapsed',0))
+            self.send({'ok':True,'replay':w.snapshot()['replay']})
+        elif path=='/api/game/auto':
+            with w.lock:
+                if w.replay is not None or w.game['phase'] in ('ready','finished'):
+                    raise ValueError('진행 중인 놀이에서만 자동 제어를 켤 수 있습니다')
+                w.finish_motion('superseded')
+                w.game['auto_chase']=bool(data.get('enabled',True))
+                w.emit('controller_change',actor='robot',automatic=w.game['auto_chase'])
+            self.send({'ok':True,'game':w.snapshot()['game']})
+        elif path=='/api/episode/observation':
+            w.note_observation(data.get('value'),data.get('source','external'))
+            self.send({'ok':True})
+        elif path=='/api/game/finish':
+            w.finish_game()
+            env=getattr(self.server,'training_env',None)
+            if env is not None:env.active=False
+            self.send({'ok':True,'game':w.snapshot()['game']})
+        elif path=='/api/game/hold':
+            w.hold_game(data.get('held',True))
+            self.send({'ok':True,'game':w.snapshot()['game']})
+        elif path=='/api/world/config':
+            with w.lock:
+                paused=bool(data.get('paused',w.paused))
+                rate=number(data.get('rate',w.rate),.25,16 if w.replay is not None else 4,'rate')
+                count=int(number(data.get('count',len(w.children)),1,16 if w.replay is not None else 8,'count'))
+                if count!=len(w.children):
+                    w.set_count(count)
+                w.paused,w.rate=paused,rate
+            self.send({'ok':True})
+        elif path=='/api/children':
+            mode=data.get('mode','still')
+            if data.get('id') is None:
+                for c in list(w.snapshot()['children']):
+                    w.set_child(c['id'],mode)
+            else:
+                w.set_child(data['id'],mode)
+            self.send({'ok':True})
+        else:
+            self.send({'error':'Not found'},404)
 
 
 def main():

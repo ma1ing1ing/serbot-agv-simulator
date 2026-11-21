@@ -1,0 +1,29 @@
+name: Simulator checks
+on: [push, pull_request]
+jobs:
+  base:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ['3.10', '3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m unittest discover -s simulator/tests -v
+      - run: node --check simulator/static/app.js
+      - run: node --test simulator/tests/motion.test.mjs
+  gym:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[training]"
+      - run: python -m unittest simulator.tests.test_gym_env -v

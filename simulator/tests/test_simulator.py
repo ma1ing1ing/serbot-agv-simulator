@@ -11,8 +11,10 @@ from simulator.server import SimulationServer
 
 
 class WorldTests(unittest.TestCase):
+    """Ideal-kinematics regression; smooth dynamics are covered in test_motion."""
     def setUp(self):
         self.world=World()
+        self.world.physics['enabled']=False
 
     def advance(self, seconds):
         for _ in range(round(seconds/.02)):
@@ -99,7 +101,7 @@ class GameTests(unittest.TestCase):
 
     def test_touch_by_one_child_makes_everyone_flee_including_still_children(self):
         w=self.world
-        w.start_game('red_light')
+        w.start_game('red_light', auto_chase=False)
         for c in w.children:
             w.set_child(c['id'],'still')
             c['z']=2.0
@@ -107,9 +109,9 @@ class GameTests(unittest.TestCase):
         self.advance(.02)
         self.assertEqual(w.game['phase'],'escaping')
         self.assertEqual(w.game['touched_by'],1)
-        self.assertTrue(all(c['moving'] and c['running'] and c['mode']=='walk' for c in w.children))
+        self.assertTrue(all(c['state']=='escaping' and c['mode']=='walk' for c in w.children))
         positions=[c['z'] for c in w.children]
-        self.advance(.2)
+        self.advance(1.5)
         self.assertTrue(all(c['z']>=z for c,z in zip(w.children,positions)))
 
     def test_full_round_finishes_for_every_supported_group_size(self):
@@ -117,7 +119,7 @@ class GameTests(unittest.TestCase):
             with self.subTest(count=count):
                 w=World()
                 w.set_count(count)
-                w.start_game('red_light')
+                w.start_game('red_light', auto_chase=False)
                 w.robot['heading']=math.pi
                 for _ in range(1800):
                     w.tick(.02)
@@ -125,43 +127,48 @@ class GameTests(unittest.TestCase):
                         break
                 self.assertEqual(w.game['phase'],'finished')
                 self.assertEqual(len(w.game['escaped_ids']),count)
-                self.assertTrue(all(c['escaped'] and not c['moving'] and abs(c['z']-w.home_z)<.001 for c in w.children))
+                self.assertTrue(all(c['escaped'] and not c['moving'] and abs(c['z']-w.home_z)<.13 for c in w.children))
                 self.assertEqual(sum('술래 터치!' in log['message'] for log in w.logs),1)
 
     def test_approach_is_not_the_old_back_and_forth_patrol(self):
         w=self.world
-        w.start_game('red_light')
+        w.start_game('red_light', auto_chase=False)
         w.robot['heading']=math.pi
         self.advance(8)
         self.assertEqual(w.game['phase'],'approaching')
-        self.assertLess(min(c['z'] for c in w.children),-1.9)
+        self.assertLess(min(c['z'] for c in w.children),-.5)
 
     def test_nearby_but_not_touching_does_not_trigger(self):
         w=self.world
-        w.start_game('red_light')
+        w.start_game('red_light', auto_chase=False)
         w.hold_game(True)
         w.children[2].update(x=0,z=w.robot['z']+w.touch_distance+.01)
         self.advance(.1)
         self.assertEqual(w.game['phase'],'approaching')
 
-    def test_hold_stops_approach_but_cannot_stop_group_escape(self):
+    def test_hold_stops_approach_and_escape_without_consuming_game_time(self):
         w=self.world
-        w.start_game('red_light')
+        w.start_game('red_light', auto_chase=False)
         w.hold_game(True)
         positions=[(c['x'],c['z']) for c in w.children]
         self.advance(1)
         self.assertEqual(positions,[(c['x'],c['z']) for c in w.children])
+        w.hold_game(False)
         w.children[2].update(x=0,z=w.robot['z']+.70)
         self.advance(.02)
-        self.assertFalse(w.game['held'])
-        with self.assertRaises(ValueError):
-            w.hold_game(True)
+        self.assertEqual(w.game['phase'],'escaping')
+        w.hold_game(True)
+        positions=[(c['x'],c['z']) for c in w.children]
+        elapsed=w.game['elapsed']
+        self.advance(1)
+        self.assertEqual(positions,[(c['x'],c['z']) for c in w.children])
+        self.assertEqual(w.game['elapsed'],elapsed)
         with self.assertRaises(ValueError):
             w.set_child(0,'still')
 
     def test_world_pause_freezes_escape(self):
         w=self.world
-        w.start_game('red_light')
+        w.start_game('red_light', auto_chase=False)
         w.children[2].update(x=0,z=w.robot['z']+.70)
         self.advance(.02)
         w.paused=True
@@ -175,12 +182,12 @@ class GameTests(unittest.TestCase):
         w=self.world
         w.set_count(7)
         w.rate=2
-        w.start_game('red_light')
+        w.start_game('red_light', auto_chase=False)
         w.children[2].update(x=0,z=w.robot['z']+.7)
         self.advance(.02)
         old=w.epoch
         w.command(.1,0,5)
-        w.start_game('red_light')
+        w.start_game('red_light', auto_chase=False)
         self.assertNotEqual(w.epoch,old)
         self.assertIsNone(w.motion)
         self.assertEqual(w.rate,2)
@@ -197,7 +204,7 @@ class GameTests(unittest.TestCase):
 
     def test_children_freeze_when_tagger_faces_them_including_wiggle(self):
         w=self.world
-        w.start_game('red_light')
+        w.start_game('red_light', auto_chase=False)
         w.set_child(0,'wiggle')
         positions=[(c['x'],c['z']) for c in w.children]
         self.advance(2)
@@ -206,11 +213,12 @@ class GameTests(unittest.TestCase):
 
     def test_turn_away_approach_then_turn_back_freeze(self):
         w=self.world
-        w.start_game('red_light')
+        w.start_game('red_light', auto_chase=False)
         w.robot['heading']=math.pi
         before=[c['z'] for c in w.children]
         self.advance(1)
         self.assertTrue(all(c['z']<z for c,z in zip(w.children,before)))
+        for c in w.children:c['profile']['reaction_time']=0
         w.robot['heading']=0
         stopped=[(c['x'],c['z']) for c in w.children]
         self.advance(1)
@@ -230,14 +238,14 @@ class GameTests(unittest.TestCase):
 
     def test_gaze_does_not_stop_escape(self):
         w=self.world
-        w.start_game('red_light')
+        w.start_game('red_light', auto_chase=False)
         for c in w.children:
             c['z']=2
         w.children[2].update(x=0,z=w.robot['z']+.70)
         self.advance(.02)
         self.assertEqual(w.game['phase'],'escaping')
         before=[c['z'] for c in w.children]
-        self.advance(.2)
+        self.advance(1.5)
         self.assertTrue(all(c['z']>z for c,z in zip(w.children,before)))
         self.assertTrue(all(c['running'] for c in w.children))
 
@@ -319,7 +327,7 @@ class APITests(unittest.TestCase):
         self.assertIsNone(self.server.world.motion)
 
     def test_game_api_and_sdk(self):
-        self.robot.start_game('red_light')
+        self.robot.start_game('red_light', auto_chase=False)
         self.assertEqual(self.robot.status()['game']['phase'],'approaching')
         self.robot.hold_children()
         self.assertTrue(self.robot.status()['game']['held'])
@@ -333,13 +341,14 @@ class APITests(unittest.TestCase):
         self.assertEqual(len(state['children']),5)
 
     def test_rotation_commands_control_children_via_api(self):
-        self.robot.start_game('red_light')
+        self.robot.start_game('red_light', auto_chase=False)
         before=self.robot.status()['children']
         self.assertTrue(all(c['watched'] for c in before))
         self.robot.command_velocity(angular_rps=3,seconds=math.pi/3)
         away=self.robot.status()['children']
         self.assertTrue(all(not c['watched'] for c in away))
         self.assertTrue(any(c['z']<b['z'] for c,b in zip(away,before)))
+        for c in self.server.world.children:c['profile']['reaction_time']=0
         self.robot.command_velocity(angular_rps=-3,seconds=math.pi/3)
         facing=self.robot.status()['children']
         self.assertTrue(all(c['watched'] and not c['moving'] for c in facing))

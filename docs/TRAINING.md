@@ -43,7 +43,7 @@ from simulator.environment import PlayEnv
 controller = RuleController()  # 이 객체를 자신의 제어기로 교체
 env = PlayEnv(game='tag', controller=controller, observation_mode='oracle', dt=0.1)
 try:
-    observation, info = env.reset(seed=42, scenario='standard', count=5,
+    observation, info = env.reset(seed=42, scenario='open', count=5,
                                   settings={'time_limit': 10})
     while True:
         observation, reward, terminated, truncated, info = env.step()
@@ -74,7 +74,7 @@ finally:
 
 ## 평가할 때 고정할 것
 
-같은 게임의 제어기를 같은 시나리오·시드·인원·물리 설정·행동 간격·관측 모드로 비교합니다. 시뮬레이터 버전, 모델 버전, 보상 설정도 함께 보관합니다. 학습에 사용하지 않은 배치와 아이 행동 유형을 평가에 남기며, 시드만 바꾼 결과를 새로운 행동 분포에 대한 검증으로 간주하지 않습니다. 게임별 성과와 최소 거리·막힌 이동·급격한 속도/회전 변화 등 공통 지표를 함께 확인합니다.
+같은 게임의 제어기를 같은 시나리오·시드·인원·물리 설정·행동 간격·관측 모드로 비교합니다. 시뮬레이터 버전, 모델 버전, 보상 설정도 함께 보관합니다. 학습에 사용하지 않은 시드·초기 위치와 아이 행동 유형을 평가에 남기며, 시드만 바꾼 결과를 새로운 행동 분포에 대한 검증으로 간주하지 않습니다. 게임별 성과와 최소 거리·막힌 이동·급격한 속도/회전 변화 등 공통 지표를 함께 확인합니다.
 
 
 ## 공통 주행 설정
@@ -108,7 +108,7 @@ from simulator.client import SimRobot
 
 robot = SimRobot()
 try:
-    initial = robot.training_reset(mode='tag', seed=42, scenario='standard',
+    initial = robot.training_reset(mode='tag', seed=42, scenario='open',
                                     count=5, dt=0.1, settings={'time_limit': 10})
     result = robot.training_step({'linear_mps': 0.1, 'angular_rps': 0.0})
 finally:
@@ -120,19 +120,15 @@ finally:
 
 ```bash
 # 결과를 화면에 출력하며 플레이 기록·결과 파일은 저장하지 않음
-python3 -m simulator.evaluate --game tag --group test --seeds 0 1 --controllers rule idle --time-limit 30
+python3 -m simulator.evaluate --game tag --seeds 0 1 --controllers rule idle --time-limit 30
 
 # 필요할 때만 결과 JSON 저장
-python3 -m simulator.evaluate --game tag --group test --seeds 0 1 --controllers rule idle --time-limit 30 --output artifacts/evaluation.json
+python3 -m simulator.evaluate --game tag --seeds 0 1 --controllers rule idle --time-limit 30 --output artifacts/evaluation.json
 ```
 
-| 시나리오 그룹 | 배치 |
-|---|---|
-| `train` | `standard`, `open` |
-| `validation` | `staggered`, `obstacle_course` |
-| `test` | `cross_room`, `dense` |
+기본 실행과 평가는 모두 장애물 없는 `open` 공간을 사용합니다. 화면에는 환경 배치 선택 메뉴가 없습니다. 아이 수·시드·행동 성향으로 조건을 바꾸고 같은 조건에서 제어기를 비교합니다. 이전 프로그램과의 호환을 위한 고급 시나리오 함수는 내부에 남겨 두지만 기본 실행에서 선택하지 않습니다.
 
-특정 배치는 `--scenario cross_room dense`로 선택할 수 있습니다. 시나리오는 장애물·참가자 배치와 아이 행동 유형을 바꾸며, 유효한 몸체 간격을 검사합니다. 사용자 제어기는 `--controller my_policy:create_controller`로 추가합니다. 각 제어기·배치·시드 조합은 별도 환경에서 실행하며 게임 성과는 같은 게임 안에서만 집계합니다. 상세 기본값과 지원 옵션은 `python3 -m simulator.evaluate --help`로 확인합니다.
+사용자 제어기는 `--controller my_policy:create_controller`로 추가합니다. 각 제어기·시드 조합은 별도 환경에서 실행하며 게임 성과는 같은 게임 안에서만 집계합니다. 상세 기본값과 지원 옵션은 `python3 -m simulator.evaluate --help`로 확인합니다.
 
 일반 주행의 변화량·최대 가속도 지표는 게임 종료·명시적 정지 같은 관리 목적 정지를 제외합니다. `administrative_stops`는 해당 정지 횟수이고, 몸체/거리 가드 정지는 `emergency_stops`·`max_emergency_deceleration`으로 따로 집계합니다. 최소 중심 거리와 0.8m 미만 근접 단계 수는 가정에 따른 진단값이며 실제 안전성 인증 지표가 아닙니다.
 
