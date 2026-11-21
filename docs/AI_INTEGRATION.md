@@ -2,6 +2,8 @@
 
 [README로 돌아가기](../README.md) · [API](API.md) · [게임 규칙](SIMULATION.md)
 
+수치 관측으로 제어 모델을 학습하거나 브라우저 없이 실행하려면 [제어기·단계 실행](TRAINING.md)을 먼저 확인하세요. 아래 문서는 기존 실시간 서버의 영상 입출력 연결입니다.
+
 ## 역할
 
 시뮬레이터는 3D 공간과 가상 센서를 제공합니다. 자신의 AI가 영상을 읽고 판단한 다음 로봇 명령을 보냅니다. 아래 코드는 연결 예제이며 인식 모델이나 놀이 AI가 아닙니다.
@@ -127,7 +129,7 @@ scan = robot.lidar_scan()        # m, 72방향
 
 기본 모드는 술래잡기입니다. 시연용 자동 추격은 정답 위치를 사용하므로 영상 AI 평가에서는 끕니다. 수동 주행·정지 명령도 자동 추격을 해제하며, 명령 종료 후 자동으로 켜지지 않습니다. 필요하면 `robot.auto_chase(True)`로 시연을 재개합니다.
 
-기존 놀이는 `robot.start_game('red_light')`로 선택합니다. 이 모드에서 터치 후에는 전원 도망 규칙을 유지하기 위해 `hold_children()`이 오류를 반환합니다. 세계 전체 일시정지는 GUI나 HTTP 설정 API로 할 수 있습니다.
+얼음땡은 `robot.start_game('freeze_tag')`, 무궁화꽃이 피었습니다는 `robot.start_game('red_light')`입니다. `hold_children()`은 세 게임에서 로봇·아이·게임 제한 시간을 멈춥니다. 세계 전체 일시정지는 GUI나 HTTP 설정 API로 할 수 있습니다. 기록하려면 `record=True`로 시작하고 `robot.record_observation(...)`으로 실제 입력을 붙인 뒤 `robot.finish_game()`으로 마감합니다. [저장 형식](EPISODES.md)을 참고하세요.
 
 ## 영상 AI 평가 시 구분할 것
 

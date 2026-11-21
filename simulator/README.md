@@ -5,6 +5,7 @@
 - [시작하기](../docs/QUICKSTART.md)
 - [Python AI 연결](../docs/AI_INTEGRATION.md)
 - [HTTP API](../docs/API.md)
+- [기록·데이터 생성](../docs/EPISODES.md)
 - [게임 규칙과 모델](../docs/SIMULATION.md)
 - [구조](../docs/ARCHITECTURE.md)
 - [개발과 테스트](../docs/DEVELOPMENT.md)

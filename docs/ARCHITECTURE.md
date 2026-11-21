@@ -18,33 +18,21 @@ flowchart LR
 
 ## 파일 역할
 
-```text
-serbot-agv-simulator/
-├── README.md                  # 실행과 주요 문서 안내
-├── pyproject.toml             # 선택적 Python 패키지 설치
-├── docs/
-│   ├── QUICKSTART.md          # 사용 시작과 문제 해결
-│   ├── AI_INTEGRATION.md      # Python AI 입출력 연결
-│   ├── API.md                 # HTTP 계약과 응답
-│   ├── SIMULATION.md          # 게임 판정과 근사 모델
-│   ├── ARCHITECTURE.md        # 이 문서
-│   ├── DEVELOPMENT.md         # 수정·검증 방법
-│   └── assets/preview.jpg     # 가상 화면 예시
-└── simulator/
-    ├── engine.py              # 로봇·아이·충돌·게임 상태
-    ├── tag_game.py            # 합성 도망 경로·자동 추격·잡힘 판정
-    ├── server.py              # 정적 화면, HTTP API, 세계 tick
-    ├── client.py              # 외부 Python용 SimRobot
-    ├── examples/camera_client.py
-    ├── tests/                 # 자동 테스트와 선택적 실영상 연결 검사
-    └── static/
-        ├── index.html         # 한국어 UI
-        ├── style.css          # 레이아웃·스타일
-        ├── app.js             # 3D 장면·애니메이션·카메라 발행
-        ├── motion.js          # 관절 동작 보간·기본 동작 대체
-        ├── motions/           # Git에서 제외한 로컬 ChildACT 변환 데이터
-        └── vendor/            # 고정 버전 Three.js / OrbitControls
-```
+| 파일 | 역할 |
+|---|---|
+| `engine.py` | 세계 시간·공유 상태·명령 수명·공통 이동 적용 |
+| `contracts.py` | 버전이 있는 관측·행동 형식과 값 검증 |
+| `controllers.py` | 교체 가능한 기준/정지 제어기와 제어기 계약 |
+| `motion.py` | 공통 속도·가속·감속·회전·충돌 처리 |
+| `environment.py` | 독립된 학습용 `reset/step`과 보상·추가 정보 |
+| `scenarios.py`, `evaluate.py` | 초기 배치·행동 유형과 공통 조건의 제어기 평가 |
+| `games.py` | 세 게임의 아이 반응·구조·시선·종료 판정 |
+| `recording.py`, `batch.py` | 선택적 기록과 직접 명령으로 시작하는 데이터 생성 |
+| `server.py`, `client.py` | 로컬 HTTP 서버와 외부 Python 클라이언트 |
+| `examples/controller_client.py` | 서버 없는 제어기 연결 예제 |
+| `static/app.js`, `motion.js` | 3D 장면·관절 애니메이션·브라우저 카메라 |
+| `docs/TRAINING.md`, `TEAMWORK.md` | 모델 연결과 팀 작업 규약 |
+
 
 ## 세계 엔진
 
@@ -54,13 +42,19 @@ serbot-agv-simulator/
 
 주행 명령은 ID를 갖고 한 번에 하나만 실행됩니다. 새 명령이 이전 명령을 대체합니다. 결과 조회는 HTTP 명령 수명과 Python의 대기 처리를 연결합니다.
 
+## 제어와 학습 경계
+
+제어기는 관측을 받아 명령 속도를 반환하고 위치를 직접 수정하지 않습니다. 규칙 시연·수동 명령·ML 제어는 공통 운동 처리를 사용합니다. `PlayEnv`는 각 인스턴스의 세계를 소유하고 `step()` 요청에서만 정해진 가상 시간만큼 진행합니다. 실시간 서버의 자동 tick과 학습용 단계 실행을 동시에 적용하지 않습니다. 공통 시각·tick을 기준으로 모델 입력·요청 행동·실제 이동·다음 상태를 구분합니다.
+
+관측은 최대 8명 슬롯과 유효성 마스크를 사용하고 `oracle` 정답 상태와 `sensor` 외부 검출 입력을 구분합니다. 브라우저 없는 학습은 수치 상태를 사용하며 별도 렌더러의 카메라 프레임과 자동 동기화되지는 않습니다. 자세한 연결 방식은 [TRAINING](TRAINING.md)을 참고하세요.
+
 ## 브라우저
 
 `app.js`는 대략 65ms 이상 간격으로 상태를 요청하고 Three.js 장면에 반영합니다. 가상 로봇의 pose로 별도 카메라를 배치하고 640×480 JPEG를 약 125ms 이상 간격으로 서버에 보냅니다. 실제 속도는 브라우저와 하드웨어에 따라 달라집니다.
 
 관찰자 카메라와 AI용 카메라는 분리됩니다. 관찰자용 이름표·시야 표시·이동 궤적은 별도 레이어에 놓아 AI용 영상에 포함하지 않습니다.
 
-`tools/build_childact_motion.py`가 사용자의 ZIP에서 관절 각도 변화를 추출합니다. `motion.js`가 이를 캐릭터의 관절에 근사 적용합니다. 이 변환 데이터에는 바닥의 m 단위 궤적이 없습니다. 바닥 위치는 `tag_game.py`에서 생성하고, 관절 재생 시간은 실제 시뮬 이동 속도에 맞춰 진행합니다. 자동 추격은 정답 위치를 사용하며 외부 AI의 주행 명령은 자동 추격을 해제합니다.
+`tools/build_childact_motion.py`가 사용자의 ZIP에서 관절 각도 변화를 추출합니다. `motion.js`가 이를 캐릭터의 관절에 근사 적용합니다. 이 변환 데이터에는 바닥의 m 단위 궤적이 없습니다. 바닥 위치는 `games.py`에서 생성하고, 관절 재생 시간은 실제 시뮬 이동 속도에 맞춰 진행합니다. 자동 추격은 정답 위치를 사용하며 외부 AI의 주행 명령은 자동 추격을 해제합니다.
 
 ## 프레임 수명
 
