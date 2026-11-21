@@ -16,6 +16,66 @@ python3 -m simulator.examples.controller_client --game freeze_tag --controller m
 
 기본 시연은 `rule`, 비교용 정지 제어기는 `idle`입니다. 예제는 학습된 모델을 포함하지 않습니다. 자신의 모델을 로드하는 생성 함수를 만들고 `module:factory`로 지정하면 됩니다. 모델별 PyTorch·TensorFlow 등은 각자의 Python 환경에 설치하고 공통 시뮬레이터의 필수 의존성으로 추가하지 않습니다.
 
+## PPO로 학습·저장·불러오기
+
+아래 예제는 **규칙 기반 가상 아이들을 상대로 로봇을 학습**합니다. 정답 위치를 사용하는 `oracle` 관측, 장애물 없는 공간, 아이 5명, 한 판 30초, 행동 간격 0.1초를 사용합니다. 서버·브라우저 없이 실행하며 카메라 인식이나 아이들 AI를 학습하지 않습니다. 프로젝트 루트에서 실행하고 Windows에서는 `python3`를 `py`로 바꾸세요.
+
+**1. 설치:** 자신의 ML 개발용 가상환경을 활성화한 뒤 설치합니다. 일반 시뮬레이터 실행에는 아래 패키지가 필요하지 않습니다.
+
+```bash
+python3 -m pip install -e ".[training]" "stable-baselines3>=2.4,<3"
+```
+
+**2. 게임·보상 선택 후 학습:** PPO(Proximal Policy Optimization, 근접 정책 최적화)의 `MultiInputPolicy`로 위치·속도·게임 상태 딕셔너리를 입력받고, `[전진 m/s, 회전 rad/s]`를 출력합니다. 보상은 [default_reward](../simulator/environment.py)의 예시를 사용합니다. 잡기·얼리기·움직임 적발에는 가점, 얼음 해제·아이 귀환·시간·막힘·근접에는 감점을 줍니다. 게임 담당자는 [학습 코드](../simulator/examples/train_ppo.py)의 환경 생성 시 `reward_fn=자신의_함수`를 전달해 목적에 맞게 바꾸고, 변경한 보상과 설정을 결과에 남깁니다.
+
+```bash
+python3 -m simulator.examples.train_ppo --game tag --steps 100000 --seed 0
+```
+
+`--game`은 `tag`·`freeze_tag`·`red_light` 중 선택합니다. `--steps`는 판 수가 아니라 행동 단계 수이며 PPO는 256단계 묶음으로 수집하므로 실제 단계 수가 요청값보다 많을 수 있습니다. 먼저 `--steps 256`으로 학습·저장 연결만 확인할 수 있습니다. 짧은 실행이나 예시 보상으로 좋은 성능이 보장되지는 않습니다. 이 명령을 직접 실행할 때만 학습이 시작됩니다.
+
+**3. 저장 결과 확인:** 게임별로 `artifacts/models/게임/model.zip`과 `config.json`을 저장합니다. 예를 들어 술래잡기는 `artifacts/models/tag/`입니다. 설정 파일에는 게임·인원·제한 시간·보상 식별자·관측/행동 형식·코드 식별자·사용한 시드·모델 해시를 남깁니다. 출력 폴더가 이미 있으면 덮어쓰지 않으므로 기존 폴더를 다른 이름으로 보관한 뒤 다시 실행하세요. 모델과 설정은 함께 보관하며 Git에는 포함하지 않습니다.
+
+**4. 저장한 모델 불러와 실행:** [연결 코드](../simulator/examples/ppo_controller.py)가 `PPO.load()`로 모델을 읽고, `reset()`·`predict()` 계약에 맞춰 속도 명령을 반환합니다. `GymPlayEnv.encode_observation()`을 공유해 학습·실행 때 입력 순서와 상태 표현을 일치시킵니다. 다른 게임·관측 형식의 모델은 연결하지 않으며, 실행 중에는 가중치를 업데이트하지 않습니다.
+
+```bash
+python3 -m simulator.examples.controller_client --game tag --controller simulator.examples.ppo_controller:create_tag_controller --seed 10000 --count 5 --time-limit 30
+```
+
+게임별 생성 함수는 `create_tag_controller`·`create_freeze_tag_controller`·`create_red_light_controller`입니다. 각 함수는 해당 게임의 기본 저장 경로를 읽습니다. 다른 경로·모델을 쓰려면 자신의 `my_policy.py`에서 생성 함수를 작성하세요. PPO 예제는 `return PPOController("내/모델/model.zip", game="tag")`로 경로를 지정할 수 있고, 다른 알고리즘은 같은 제어기 계약을 구현하면 됩니다. 입력 정규화·프레임 누적 등을 추가했다면 그 전처리 설정도 저장·복원해야 합니다. 이 명령은 한 판 결과를 터미널에 출력하며 브라우저 화면을 띄우지 않습니다.
+
+**5. 기본 제어기와 비교:** 같은 게임·인원·시간·물리·행동 간격·관측 모드에서 `rule`과 저장 모델을 실행합니다. 평가 시드가 `config.json`의 `training_episode_seeds`에 없는지 확인하고, 겹치면 다른 평가 시드를 선택하세요.
+
+```bash
+python3 -m simulator.evaluate --game tag --controllers rule --controller simulator.examples.ppo_controller:create_tag_controller --seeds 10000 10001 10002 --count 5 --time-limit 30 --dt 0.1 --observation-mode oracle
+```
+
+기본 출력은 게임별 성공률·성과 점수입니다. `--output artifacts/ppo-evaluation.json`을 추가하면 최소 거리·막힘·속도/회전 변화 등 지표와 모델 식별자도 파일로 확인할 수 있습니다. 예제의 기본 설정을 바꿨다면 비교 명령도 맞추고, 학습 보상만으로 개선을 판단하지 않습니다. 참고: [Stable-Baselines3 학습·저장·불러오기](https://stable-baselines3.readthedocs.io/en/master/guide/examples.html#basic-usage-training-saving-loading), [사용자 환경 연결](https://stable-baselines3.readthedocs.io/en/master/guide/custom_env.html).
+
+## 게임별 기본 로봇 제어기
+
+`RuleController`와 `--controller rule`은 선택한 게임에 맞는 아래 제어기를 자동으로 사용합니다. 화면의 **로봇 자동 제어**도 같은 코드를 사용합니다. 공통 추격은 가까운 대상을 선택하되 기존 대상에 0.3m의 유지 보정을 적용하고, 주변 아이·경계를 고려해 전진·회전 속도를 결정합니다. 잡힘·얼음·탈락·귀환 판정은 공통 게임 엔진이 처리하며 제어기가 아이 상태를 직접 바꾸지 않습니다.
+
+| 게임 | 제어기 (`simulator.controllers`) | 기본 행동 |
+|---|---|---|
+| 술래잡기 | `TagController` | 잡히지 않은 아이 추격 → 잡히면 다음 대상 선택 |
+| 얼음땡 | `FreezeTagController` | 자유·구출 중인 아이 추격 → 얼린 아이 제외 → 해제된 아이는 다시 추격 후보에 포함 |
+| 무궁화꽃이 피었습니다 | `RedLightController` | 제자리에서 바라보기·뒤돌기 반복 → 터치 후 귀환 중인 아이 추격 → 잡힘·탈락·귀환한 아이 제외 |
+
+무궁화의 기본 주기는 5초이며 앞보기 목표가 1.8초, 뒤돌기 목표가 3.2초입니다. **회전 시간도 이 주기에 포함**되며, 아이의 정지 판단은 목표 방향 표시가 아니라 실제 로봇 방향으로 계산합니다. 회전은 목표 각도에 비례한 속도로 감속해 정착하도록 합니다. 이동에는 공통 가속·감속·회전·몸체 충돌 제한을 적용합니다. 기본 `oracle` 모드는 정답 위치·상태를 사용하는 제어 실험이며, `sensor` 모드에서 게임 상태가 `unknown`인 검출의 잡힘·얼음 여부까지 판단해 주지는 않습니다.
+
+```bash
+# 기본 rule이 게임에 맞게 자동 선택. 파일 저장 없이 각 한 판 실행
+python3 -m simulator.examples.controller_client --game tag --controller rule
+python3 -m simulator.examples.controller_client --game freeze_tag --controller rule
+python3 -m simulator.examples.controller_client --game red_light --controller rule
+
+# 하나의 게임 제어기를 명시적으로 연결하는 경우
+python3 -m simulator.examples.controller_client --game tag --controller simulator.controllers:TagController
+```
+
+이 제어기들은 실행하면서 학습하지 않는 **고정된 기본 상대**입니다. 로봇은 움직이고 아이를 따라 대상을 바꾸지만 판단 규칙·가중치는 바뀌지 않습니다. 향후 아이들 AI 학습에 사용할 때는 저장소 커밋, 제어기의 `model_version`(`game-rules-1`), 관측 모드, 로봇 속도·시선 주기·물리·행동 간격을 고정해 사용합니다. 평가 도구는 제어기 클래스와 모델 버전도 결과에 포함합니다. 동일 조건·시드에서는 같은 결과를 재현하며 시드 변경으로 초기 조건을 다양하게 할 수 있습니다. 현재 제공 범위는 기본 로봇 제어기와 규칙 기반 아이 행동이며 **아이들 AI 학습·모델 업데이트 기능은 아직 포함하지 않습니다.**
+
 ## 공통 제어기 계약
 
 ```python

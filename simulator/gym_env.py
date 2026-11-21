@@ -42,7 +42,8 @@ class GymPlayEnv(gym.Env):
             sensors=spaces.Box(-1.,8.,shape=(4,),dtype=np.float32)))
 
     @staticmethod
-    def _encode(observation):
+    def encode_observation(observation):
+        """Use the same numeric input for training and saved-model inference."""
         robot = observation['robot']
         children = [[c[key] for key in ('relative_x','relative_z','relative_vx','relative_vz','distance','bearing')]
                     +[STATES.index(c['state'])] for c in observation['children']]
@@ -51,6 +52,9 @@ class GymPlayEnv(gym.Env):
                     child_mask=np.asarray(observation['child_mask'],dtype=np.int8),
                     game=np.asarray([GAMES.index(observation['game']['mode']),PHASES.index(observation['game']['phase'])],dtype=np.int64),
                     sensors=np.asarray([observation['sensors'].get(k,-1.) for k in ('front_m','left_m','right_m','rear_m')],dtype=np.float32))
+
+    # Compatibility with callers written before the shared encoder was public.
+    _encode = encode_observation
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -64,7 +68,7 @@ class GymPlayEnv(gym.Env):
             settings=options.get('settings',self.settings),record=options.get('record',False),
             record_dir=options.get('record_dir'),split=options.get('split','interactive'))
         info.pop('epoch',None)
-        return self._encode(observation),info
+        return self.encode_observation(observation),info
 
     def step(self, action):
         value = np.asarray(action,dtype=np.float32)
@@ -72,7 +76,7 @@ class GymPlayEnv(gym.Env):
             raise ValueError('action must be a finite [linear_mps, angular_rps] within bounds')
         observation,reward,terminated,truncated,info = self.environment.step(dict(linear_mps=float(value[0]),angular_rps=float(value[1]),guard=self.guard))
         info.pop('epoch',None)
-        return self._encode(observation),reward,terminated,truncated,info
+        return self.encode_observation(observation),reward,terminated,truncated,info
 
     def close(self):
         self.environment.close()

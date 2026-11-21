@@ -104,4 +104,4 @@ serbot-sim --port 8770
 
 공통 환경 작업 전 기존 비네트워크 테스트 92개가 통과한 상태를 기준으로 확인했습니다. 새 가감속 동작과 구분해 기존 이상적 운동의 단위·방향 회귀는 `physics.enabled=False`로 유지하고, 기본 가감속·단계 실행·제어기 교체·센서 관측·전이 정렬은 별도 테스트로 확인합니다. 패키지 버전은 0.2.0이며 저장 결과의 코드 SHA-256과 계약·규칙·시나리오 버전으로 실제 사용한 환경을 구분합니다.
 
-`.github/workflows/tests.yml`은 Windows/macOS/Linux × Python 3.10/3.12와 선택적인 Gymnasium 검사 작업을 정의합니다. 파일 추가만으로 원격 실행이나 다른 컴퓨터 검증이 완료된 것은 아닙니다. GitHub에 반영한 뒤 Actions 결과를 확인하세요. 로컬 포트가 제한된 환경에서는 TCP 기반 APITests와 실제 브라우저 검사가 별도로 필요합니다. Gymnasium 미설치 시 2개 선택 테스트를 건너뛰며 일반 시뮬레이터는 그대로 실행됩니다.
+`.github/workflows/tests.yml`은 Windows/macOS/Linux × Python 3.10/3.12와 Gymnasium·PPO 검사 작업을 정의합니다. PPO 검사는 임시 폴더에서 256단계만 학습해 저장·불러오기·기본 제어기와 비교 연결을 확인하며 성능 검증은 아닙니다. 로컬에서는 학습 패키지 설치 후 `python3 -m unittest simulator.tests.test_gym_env simulator.tests.test_ppo_example -v`로 실행합니다. 파일 추가만으로 원격 실행이나 다른 컴퓨터 검증이 완료된 것은 아닙니다. GitHub에 반영한 뒤 Actions 결과를 확인하세요. 로컬 포트가 제한된 환경에서는 TCP 기반 APITests와 실제 브라우저 검사가 별도로 필요합니다. 선택 패키지가 없으면 해당 Gymnasium·PPO 통합 검사를 건너뛰며 일반 시뮬레이터는 그대로 실행됩니다.
