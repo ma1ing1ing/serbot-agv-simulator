@@ -8,21 +8,20 @@ SerBot AGV용 AI를 개발할 때 사용하는 로컬 3D 시뮬레이터입니�
 
 ![시뮬레이터 화면](docs/assets/preview.jpg)
 
-## 실행
+## 각자 컴퓨터에서 실행하기
 
-**Playground A 위치 기록 재생:** 놀이 선택에서 `Playground A · 위치 기록 재생`을 고르면 실제 배포 CSV의 여러 참가자 경로를 동시에 재생합니다. 시간 이동·구간 선택·아이별 이동선을 지원합니다. [원본 준비와 해석 범위](docs/PLAYGROUND_A.md)를 확인하세요.
+1. **준비:** [Python 3.10 이상](https://www.python.org/downloads/)과 WebGL을 지원하는 브라우저를 준비합니다. 기본 실행에는 추가 패키지 설치가 필요하지 않습니다.
+2. **다운로드:** [GitHub 저장소](https://github.com/ma1ing1ing/serbot-agv-simulator)에서 **Code → Download ZIP**을 누르고 압축을 풉니다. 비공개 저장소이면 초대받은 계정으로 로그인하고 초대를 수락해야 합니다.
+3. **실행:** `README.md`와 `simulator` 폴더가 함께 있는 프로젝트 폴더에서 아래 방법으로 명령 창을 열고, 자신의 운영체제에 맞는 명령을 입력합니다.
 
-필요한 환경: **Python 3.10 이상**, **WebGL을 지원하는 브라우저**. 서버 실행에 필요한 Python 추가 패키지는 없습니다. Three.js도 저장소에 포함되어 있습니다.
+| 운영체제 | 프로젝트 폴더에서 명령 창 열기 | 서버 실행 명령 |
+|---|---|---|
+| Windows | 파일 탐색기의 주소 표시줄에 `powershell` 입력 후 Enter | `py -m simulator.server` |
+| macOS | 터미널에 `cd ` 입력 → 프로젝트 폴더를 끌어다 놓기 → Enter | `python3 -m simulator.server` |
 
-```bash
-git clone https://github.com/ma1ing1ing/serbot-agv-simulator.git
-cd serbot-agv-simulator
-python3 -m simulator.server
-```
+명령 창을 켜 둔 채로 브라우저에서 **<http://127.0.0.1:8767>**을 열고 **술래잡기 → 로봇 자동 추격 → 게임 시작**을 선택합니다. 각자 컴퓨터에서 독립된 게임이 실행됩니다. 종료는 명령 창에서 **Ctrl+C**, 다음 실행은 같은 폴더에서 위 명령을 다시 입력하면 됩니다.
 
-브라우저에서 **<http://127.0.0.1:8767>**을 엽니다. Windows에서는 `python3` 대신 `py` 또는 `python`을 사용합니다. 종료는 서버 터미널에서 `Ctrl+C`입니다.
-
-> `simulator/static/index.html`을 파일로 직접 열면 동작하지 않습니다. Python 서버를 실행한 뒤 위 HTTP 주소로 접속해야 합니다. 카메라 영상을 받는 동안 브라우저 탭을 활성 상태로 유지하세요.
+Windows에서 `py`를 찾지 못하면 `python`으로 바꿔 실행하세요. HTML 파일을 더블클릭하는 대신 위 주소로 접속하고, 가상 카메라를 사용할 때는 브라우저 탭을 활성 상태로 유지합니다. 포트 오류 등은 [실행 문제 해결](docs/QUICKSTART.md#문제-해결)을 참고하세요.
 
 ## 구현된 게임 규칙
 
@@ -34,18 +33,16 @@ python3 -m simulator.server
 
 무궁화꽃이 피었습니다에서는 기존의 시선에 따른 접근·정지, 터치 후 전원 도망 규칙을 사용합니다. [게임 규칙](docs/SIMULATION.md)을 확인하세요.
 
-## ChildACT 관절 동작 연결
+## 선택: 어린이 데이터셋 연결
 
-다운로드한 `ChildACT.zip`으로 로컬 모션 파일을 생성합니다. Python 표준 라이브러리만 사용하며 NumPy 설치는 필요하지 않습니다.
+**기본 게임은 데이터를 받지 않아도 실행됩니다.** 아래 데이터 기반 기능은 원본·변환 파일이 GitHub에 포함되지 않으므로 각자 내려받아 설정합니다. Windows에서는 문서의 `python3` 명령을 `py`로 바꿔 사용하세요.
 
-```bash
-python3 tools/build_childact_motion.py /Users/marine/Downloads/ChildACT.zip
-python3 -m simulator.server
-```
+| 데이터셋 | 사용하는 기능 | 준비 방법 |
+|---|---|---|
+| ChildACT | 2차원 관절 기록을 바탕으로 만든 걷기·조깅·달리기 애니메이션 | [다운로드·변환 안내](docs/CHILDACT.md) |
+| Playground A | 참가자 16명의 기록된 위치 궤적 재생 | [다운로드·변환 안내](docs/PLAYGROUND_A.md) |
 
-브라우저에 **ChildACT 동작 연결됨**이 표시되면 걷기·조깅·달리기 기록에서 추출한 관절 각도 변화가 연결된 상태입니다. 팔꿈치와 무릎이 있는 캐릭터에 적용하며, 모션 파일이 없으면 **기본 동작 사용 중**으로 표시하고 기본 동작을 재생합니다.
-
-**ChildACT가 제공하는 것은 관절 동작이며, 이 시뮬의 m 단위 이동 경로는 규칙으로 생성합니다.** 2차원 좌표를 투영 각도로 변환한 근사 애니메이션으로, 실제 어린이의 3차원 자세·이동 경로·속도를 복원한 결과가 아닙니다. [변환 방법과 한계](docs/CHILDACT.md)를 확인하세요. 생성된 연구 데이터는 Git과 배포 패키지에 포함하지 않습니다.
+Playground A는 **놀이 선택 → Playground A · 위치 기록 재생 → 기록 재생**으로 실행합니다. **위에서** 보기와 **이동 궤적**을 켜면 경로를 볼 수 있습니다. 기록 재생 중인 아이들은 로봇의 움직임에 반응하지 않습니다.
 
 ## 기능
 
