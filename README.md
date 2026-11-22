@@ -117,6 +117,7 @@ robot.stop()
 | [게임 규칙과 모델](docs/SIMULATION.md) | 방향·터치·도망 판정, 좌표계, 가상 환경의 한계 |
 | [구조](docs/ARCHITECTURE.md) | 서버·엔진·브라우저·AI 사이의 데이터 흐름 |
 | [개발과 테스트](docs/DEVELOPMENT.md) | 코드 위치, 테스트, GitHub Actions, 수정 시 확인할 점 |
+| [소리·움직임 연구](docs/research/PET_ROBOT_SOUND_MOTION.md) | 사람과 로봇 사이의 장벽을 낮추는 설계 선택, 사용자 연구, 로보또 적용 가설 |
 | [외부 라이브러리](THIRD_PARTY_NOTICES.md) | Three.js 버전과 라이선스 |
 
 ## 검증
