@@ -10,7 +10,7 @@ from simulator.controllers import (
 )
 from simulator.engine import World
 from simulator.environment import PlayEnv
-from simulator.examples.tag_pursuit import LeadTagController, SteadyTagController
+from simulator.examples.tag_pursuit import ClosingTagController, LeadTagController, SteadyTagController
 
 
 CONTROLLERS = (
@@ -181,6 +181,37 @@ class GameControllerTests(unittest.TestCase):
 
 
 class TagExperimentTests(unittest.TestCase):
+    def test_closing_prefers_a_nearby_approaching_challenger_after_one_second(self):
+        world = world_for('tag', count=4)
+        baseline, closing = TagController(), ClosingTagController()
+        for child, distance in zip(world.children, (1., 2., 3., 6.)):
+            child['z'] = distance
+        for policy in (baseline, closing):
+            policy.predict(world.observe())
+            self.assertEqual(policy.target_id, 0)
+        world.time = 1.
+        for child, distance in zip(world.children, (3., 2., 2.2, 2.4)):
+            child['z'] = distance
+        baseline.predict(world.observe())
+        closing.predict(world.observe())
+        self.assertEqual(baseline.target_id, 1)
+        self.assertEqual(closing.target_id, 2)  # ID 3 closes faster but lies outside the band.
+        closing.reset()
+        self.assertEqual(closing.predict(world.observe()), baseline.predict(world.observe()))
+        self.assertEqual(closing.target_id, 1)
+
+    def test_closing_challenger_must_clear_the_current_target_margin(self):
+        world = world_for('tag', count=3)
+        closing = ClosingTagController()
+        for child, distance in zip(world.children, (1., 2., 4.)):
+            child['z'] = distance
+        closing.predict(world.observe())
+        world.time = 1.
+        for child, distance in zip(world.children, (2.4, 2., 2.2)):
+            child['z'] = distance
+        closing.predict(world.observe())
+        self.assertEqual(closing.target_id, 1)  # ID 2 closes but is only 0.2 m closer than ID 0.
+
     def test_switch_margin_keeps_current_target_until_another_is_closer(self):
         world = world_for('tag', count=2)
         baseline, steady = TagController(), SteadyTagController()

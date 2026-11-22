@@ -74,6 +74,10 @@ class _PursuitController:
             return MotionAction()
         return self._pursue(observation)
 
+    def _select_target(self, candidates, observation):
+        return min(candidates, key=lambda c: (
+            c['distance'] - (self.target_margin if c['id'] == self.target_id else 0.), c['id']))
+
     def _pursue(self, observation):
         robot, rules = observation['robot'], observation['rules']
         candidates = [c for c, mask in zip(observation['children'], observation['child_mask'])
@@ -81,7 +85,7 @@ class _PursuitController:
         if not candidates:
             self.target_id = None
             return MotionAction()
-        target = min(candidates, key=lambda c: (c['distance']-(self.target_margin if c['id'] == self.target_id else 0.), c['id']))
+        target = self._select_target(candidates, observation)
         self.target_id = target['id']
         desired = robot['heading']+self._target_bearing(target)
         if observation['source'] == 'oracle':
