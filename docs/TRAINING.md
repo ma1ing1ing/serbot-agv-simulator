@@ -26,7 +26,7 @@ python3 -m simulator.examples.controller_client --game freeze_tag --controller m
 python3 -m pip install -e ".[training]" "stable-baselines3>=2.4,<3"
 ```
 
-**2. 게임·보상 선택 후 학습:** PPO(Proximal Policy Optimization, 근접 정책 최적화)의 `MultiInputPolicy`로 위치·속도·게임 상태 딕셔너리를 입력받고, `[전진 m/s, 회전 rad/s]`를 출력합니다. 보상은 [default_reward](../simulator/environment.py)의 예시를 사용합니다. 잡기·얼리기·움직임 적발에는 가점, 얼음 해제·아이 귀환·시간·막힘·근접에는 감점을 줍니다. 게임 담당자는 [학습 코드](../simulator/examples/train_ppo.py)의 환경 생성 시 `reward_fn=자신의_함수`를 전달해 목적에 맞게 바꾸고, 변경한 보상과 설정을 결과에 남깁니다.
+**2. 게임·보상 선택 후 학습:** PPO(Proximal Policy Optimization, 근접 정책 최적화)의 `MultiInputPolicy`로 위치·속도·게임 상태 딕셔너리를 입력받고, `[전진 m/s, 회전 rad/s]`를 출력합니다. 보상은 [default_reward](../simulator/environment.py)의 예시를 사용합니다. 잡기·얼리기·움직임 적발에는 가점, 얼음 해제·아이 귀환·시간·막힘·근접에는 감점을 줍니다. 개인 보상은 [학습 함수](../simulator/examples/train_ppo.py)에 `train(..., reward_fn=자신의_함수)`로 전달합니다. [술래잡기 실험 기록](TAG_EXPERIMENTS.md)에 막힘 감점만 바꾼 예와 비교 결과가 있습니다.
 
 ```bash
 python3 -m simulator.examples.train_ppo --game tag --steps 100000 --seed 0

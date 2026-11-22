@@ -10,6 +10,7 @@ from simulator.controllers import (
 )
 from simulator.engine import World
 from simulator.environment import PlayEnv
+from simulator.examples.tag_pursuit import LeadTagController, SteadyTagController
 
 
 CONTROLLERS = (
@@ -177,6 +178,34 @@ class GameControllerTests(unittest.TestCase):
                     traces.append(trace)
             with self.subTest(mode=mode):
                 self.assertEqual(traces[0], traces[1])
+
+
+class TagExperimentTests(unittest.TestCase):
+    def test_switch_margin_keeps_current_target_until_another_is_closer(self):
+        world = world_for('tag', count=2)
+        baseline, steady = TagController(), SteadyTagController()
+        for controller in (baseline, steady):
+            controller.predict(world.observe())
+            self.assertEqual(controller.target_id, 0)
+        world.children[0]['z'] = 2.5  # Target 1, at 2.0 m, is 0.5 m closer.
+        for controller, expected in ((baseline, 1), (steady, 0)):
+            controller.predict(world.observe())
+            self.assertEqual(controller.target_id, expected)
+        world.children[0]['z'] = 3.
+        steady.predict(world.observe())
+        self.assertEqual(steady.target_id, 1)
+
+    def test_lead_uses_relative_velocity_without_changing_target_priority(self):
+        world = world_for('tag', count=2)
+        world.children[0].update(x=0., z=2., vx=1., vz=0.)
+        world.children[1].update(x=-2.03, z=0., vx=0., vz=0.)
+        baseline, lead = TagController(), LeadTagController()
+        obs = world.observe()
+        self.assertEqual(baseline.predict(obs).angular_rps, 0.)
+        expected_turn = 3 * math.atan2(-.6, 2.)
+        self.assertAlmostEqual(lead.predict(obs).angular_rps, expected_turn)
+        self.assertEqual(lead.target_id, 0)
+        self.assertEqual(lead.target_id, baseline.target_id)
 
 
 if __name__ == '__main__':
