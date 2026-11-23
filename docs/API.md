@@ -15,6 +15,7 @@ JSON POST는 `Content-Type: application/json`이 필요합니다. 요청 본문�
 | `GET /api/camera.jpg` | 최신 `image/jpeg`. 준비되지 않았거나 오래된 영상이면 503 JSON. |
 | `GET /api/camera/stream.mjpg` | `multipart/x-mixed-replace; boundary=frame` 연속 영상. |
 | `GET /api/camera/meta` | 준비 상태, 프레임 번호·가상 시각·크기. |
+| `GET /api/camera/sync.jpg?tick=&epoch=` | 선택. 요청한 tick의 상태로 렌더링한 JPEG. 단계 실행·일시정지 중에만, 열린 탭 필요. `width`·`height`(최대 1280×960), 세로 `fov`, `timeout`. 409/504/400. [상세](SHIMCHEONG.md#3-tick-동기-카메라) |
 
 ```bash
 curl http://127.0.0.1:8767/api/camera/meta
@@ -62,7 +63,7 @@ curl http://127.0.0.1:8767/api/camera.jpg --output camera.jpg
 }
 ```
 
-`physics` 객체로 공통 주행 제한을 지정할 수도 있습니다. 단계 실행 중에는 서버의 실시간 tick이 세계를 진행하지 않으며, 다른 탭의 게임 시작·설정·주행 등 변경 요청은 409를 반환합니다. 로봇 정지, 단계 실행 경로, 관측·검출 등록, 게임 종료는 허용합니다. 학습 중 로봇 정지는 해당 판을 emergency_stop으로 종료합니다. SDK는 초기화 epoch를 후속 요청에 포함하고 오래된 요청은 409로 거부합니다. `training/close`로 명시적으로 해제합니다. 영상 렌더러와 단계 실행은 자동 동기화되지 않으므로 영상의 epoch·가상 시각을 따로 확인해야 합니다.
+`physics` 객체로 공통 주행 제한을 지정할 수도 있습니다. 선택 기능으로 `"physics": "serbot_measured"`(프리셋 이름)와 `"serbot_sensors": true`(관측에 `serbot` 블록 추가)를 받습니다. 두 값은 `POST /api/game/start`에서도 사용할 수 있으며 [심청이 연결](SHIMCHEONG.md)을 참고하세요. 단계 실행 중에는 서버의 실시간 tick이 세계를 진행하지 않으며, 다른 탭의 게임 시작·설정·주행 등 변경 요청은 409를 반환합니다. 로봇 정지, 단계 실행 경로, 관측·검출 등록, 게임 종료는 허용합니다. 학습 중 로봇 정지는 해당 판을 emergency_stop으로 종료합니다. SDK는 초기화 epoch를 후속 요청에 포함하고 오래된 요청은 409로 거부합니다. `training/close`로 명시적으로 해제합니다. 영상 렌더러와 단계 실행은 자동 동기화되지 않으므로 영상의 epoch·가상 시각을 따로 확인해야 합니다.
 
 `info`에는 게임·단계·종료 이유·시드·시나리오·관측 출처·시간·tick과 `metrics`가 있습니다. 지표는 최소 중심 거리, 막힌 이동 시도, 근접 단계 수, 선속도/각속도 변화, 최대 선가속도/각가속도, 표본 수와 누적 보상을 포함합니다. 최소 중심 거리는 몸체 사이 빈 공간을 뜻하지 않습니다.
 
@@ -187,6 +188,6 @@ LiDAR의 각도 0은 로봇의 정면이며, 양의 각도는 왼쪽입니다. �
 | 500 | 기록 저장 실패. 저장 공간·쓰기 권한 확인 |
 | 503 | 사용할 수 있는 카메라 프레임 없음 |
 
-`GET /api/session`, `POST /api/camera/frame`은 브라우저 렌더러용 내부 프로토콜입니다. 일반 AI 프로그램은 영상을 읽기만 하면 됩니다. 렌더러 토큰은 서버 실행 시 생성되는 임시 값이며, 실제 로봇 인증 정보가 아닙니다.
+`GET /api/session`, `POST /api/camera/frame`은 브라우저 렌더러용 내부 프로토콜입니다. 동기 카메라 요청이 걸려 있는 동안에만 `/api/state`에 `camera_sync`가 나타납니다. 일반 AI 프로그램은 영상을 읽기만 하면 됩니다. 렌더러 토큰은 서버 실행 시 생성되는 임시 값이며, 실제 로봇 인증 정보가 아닙니다.
 
 기본 환경은 장애물 없는 `open` 공간입니다. 게임 시작에서 `scenario`를 생략하거나 null로 보내도 `open`을 사용하고 학습 초기화도 기본 `open`입니다. 기존 시나리오 인자는 프로그램 호환을 위해 유지하지만 화면에 환경 배치 선택 메뉴는 제공하지 않습니다.

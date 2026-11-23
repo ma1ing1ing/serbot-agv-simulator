@@ -86,6 +86,14 @@ python3 -m simulator.examples.controller_client --game freeze_tag --controller m
 
 처음 모델을 연결한다면 [PPO 학습·저장·불러오기 예제](docs/TRAINING.md#ppo로-학습저장불러오기)를 따라 **패키지 설치 → 게임·보상 설정 → 학습·모델 저장 → 저장 모델 연결 → 기본 제어기와 비교**를 진행하세요. 학습과 반복 평가는 서버·브라우저 없이 실행하며 예제 모델의 성능은 별도로 평가합니다.
 
+## 선택: 심청이 주행 모델 연결
+
+우리 안내견 로봇 주행 모델 **심청이**(Hugging Face `koreashin/simcheongi`)를 연결할 때만 쓰는 선택 기능이 있습니다. 실측 주행 제한 프리셋 `serbot_measured`, 관측에 붙는 SerBot 라이다 400빔·초음파 6개 블록, 요청한 tick의 상태로 렌더링하는 동기 카메라, 심청이 제어기 예제입니다. **모두 기본 꺼짐**이며 켜지 않으면 기존 결과가 그대로입니다. 심청이는 복도·경로 주행용으로 학습한 모델이며 게임용으로 학습·검증하지 않았습니다. [켜는 방법·근거·한계](docs/SHIMCHEONG.md)를 참고하세요.
+
+```bash
+python3 -m simulator.evaluate --game tag --controllers rule --physics serbot_measured --serbot-sensors
+```
+
 ## 내 Python 영상 AI와 연결
 
 서버와 브라우저를 켜 둔 후 **다른 터미널에서 이 저장소를 작업 경로로** 프로그램을 실행합니다.
@@ -117,6 +125,7 @@ robot.stop()
 | [게임 규칙과 모델](docs/SIMULATION.md) | 방향·터치·도망 판정, 좌표계, 가상 환경의 한계 |
 | [구조](docs/ARCHITECTURE.md) | 서버·엔진·브라우저·AI 사이의 데이터 흐름 |
 | [개발과 테스트](docs/DEVELOPMENT.md) | 코드 위치, 테스트, GitHub Actions, 수정 시 확인할 점 |
+| [심청이 연결](docs/SHIMCHEONG.md) | 선택: 실측 주행 프리셋·SerBot 센서 관측·tick 동기 카메라·심청이 제어기 |
 | [외부 라이브러리](THIRD_PARTY_NOTICES.md) | Three.js 버전과 라이선스 |
 
 ## 검증

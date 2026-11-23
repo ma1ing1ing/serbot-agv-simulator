@@ -23,7 +23,8 @@ flowchart LR
 | `engine.py` | 세계 시간·공유 상태·명령 수명·공통 이동 적용 |
 | `contracts.py` | 버전이 있는 관측·행동 형식과 값 검증 |
 | `controllers.py` | 교체 가능한 기준/정지 제어기와 제어기 계약 |
-| `motion.py` | 공통 속도·가속·감속·회전·충돌 처리 |
+| `motion.py` | 공통 속도·가속·감속·회전·충돌 처리, 선택 주행 프리셋 |
+| `serbot_sensors.py` | 선택: 심청이 입력 형식의 라이다 400빔·초음파 6개·자세(기본 꺼짐) |
 | `environment.py` | 독립된 학습용 `reset/step`과 보상·추가 정보 |
 | `scenarios.py`, `evaluate.py` | 초기 배치·행동 유형과 공통 조건의 제어기 평가 |
 | `games.py` | 세 게임의 아이 반응·구조·시선·종료 판정 |
