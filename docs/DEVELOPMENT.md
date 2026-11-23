@@ -39,13 +39,14 @@ Python 테스트는 기존 로봇·시선 게임 검증에 술래잡기와 HTTP 
 - 인원 1·5·8명과 배속 1·4에서 충돌·좌표 범위
 - 로컬 ChildACT 파일 제공과 모션의 재생 주기 경계
 - Playground A 공통 시간축 보간·누락 숨김·시간 이동·종료·기존 게임 전환 (`test_replay.py`)
+- 선택 기능: 주행 프리셋·SerBot 센서 블록(`test_serbot_options.py`), 심청이 제어기 연결(`test_shimcheong.py`, 가짜 계획기), tick 동기 카메라 프로토콜(`test_sync_camera.py`, TCP·가짜 렌더러)
 
 이 테스트는 내부에 임시 로컬 서버를 열지만 브라우저나 실제 로봇은 필요하지 않습니다. 카메라 프로토콜의 단위 테스트는 JPEG 모양의 fixture를 사용하므로 실제 3D 렌더링 결과를 검증한 것으로 해석하면 안 됩니다.
 
 포트 열기 권한이 제한된 실행 환경에서는 아래 비네트워크 검사를 사용할 수 있습니다. `RouteTests`는 실제 HTTP 요청 파서와 핸들러를 메모리 입출력으로 실행합니다. TCP 연결과 브라우저 렌더링 검사를 대신하지 않습니다.
 
 ```bash
-python3 -m unittest simulator.tests.test_simulator.WorldTests simulator.tests.test_simulator.GameTests simulator.tests.test_tag_game simulator.tests.test_http_routes simulator.tests.test_replay simulator.tests.test_games simulator.tests.test_recording simulator.tests.test_contracts simulator.tests.test_motion simulator.tests.test_child_reactions simulator.tests.test_scenarios simulator.tests.test_evaluation simulator.tests.test_environment simulator.tests.test_training_routes simulator.tests.test_gym_env -v
+python3 -m unittest simulator.tests.test_simulator.WorldTests simulator.tests.test_simulator.GameTests simulator.tests.test_tag_game simulator.tests.test_http_routes simulator.tests.test_replay simulator.tests.test_games simulator.tests.test_recording simulator.tests.test_contracts simulator.tests.test_motion simulator.tests.test_child_reactions simulator.tests.test_scenarios simulator.tests.test_evaluation simulator.tests.test_environment simulator.tests.test_training_routes simulator.tests.test_gym_env simulator.tests.test_serbot_options simulator.tests.test_shimcheong -v
 node --test simulator/tests/motion.test.mjs
 ```
 
@@ -68,6 +69,7 @@ python3 -m unittest simulator.tests.live_camera_check -v
 | 공통 관측·행동 | `simulator/contracts.py` |
 | 제어기·학습용 단계 실행 | `simulator/controllers.py`, `simulator/environment.py` |
 | 로봇 공통 운동 | `simulator/motion.py` |
+| 선택: 주행 프리셋·SerBot 센서·심청이 연결 | `motion.py`의 `PHYSICS_PRESETS`, `simulator/serbot_sensors.py`, `simulator/examples/shimcheong_controller.py` |
 | 시나리오·평가 | `simulator/scenarios.py`, `simulator/evaluate.py` |
 | 세 게임의 행동·판정 | `simulator/games.py` |
 | 술래잡기 이동 경로·자동 추격 | `simulator/games.py` |

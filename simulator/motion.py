@@ -1,8 +1,9 @@
 """One bounded motion path shared by manual, rule and ML controllers.
 
-These acceleration values are configurable simulator assumptions, not measured
-SerBot motor parameters. Collision prevention is a geometric emergency stop,
-not a prediction of real braking or impact dynamics.
+The default values are configurable simulator assumptions, not measured
+SerBot motor parameters; the opt-in ``serbot_measured`` preset uses limits
+from the SerBot driver (docs/SHIMCHEONG.md). Collision prevention is a
+geometric emergency stop, not a prediction of real braking or impact dynamics.
 """
 from __future__ import annotations
 
@@ -14,15 +15,42 @@ DEFAULT_PHYSICS = dict(max_linear=.5, max_angular=3., max_acceleration=1.,
                        max_deceleration=1.5, max_angular_acceleration=6., body_margin=.02,
                        guard_distance=.2, enabled=True)
 
+# Opt-in limits taken from the SerBot driver used with the simcheongi model
+# (docs/SHIMCHEONG.md lists the source of every value). Selecting it never
+# changes DEFAULT_PHYSICS; results with it are a different environment.
+SERBOT_MEASURED_PHYSICS = dict(
+    max_linear=.5,                              # contract maximum; robot request ceiling is higher (0.60 outdoors)
+    max_angular=math.radians(40.),              # typical driver turn cap in drive logs ("w_cap_dps": 40)
+    max_acceleration=.3,                        # driver follower accel 0.30 m/s^2
+    max_deceleration=.3,                        # driver THIN_DEC 0.30 m/s^2 (measured stop p10 0.29)
+    max_angular_acceleration=math.radians(120.),  # driver THIN_W_RATE 120 deg/s^2
+    body_margin=.06,                            # driver G_OUTLINE: body outline + 0.06 m
+    guard_distance=.125,                        # driver G_FRONT_MARGIN: bumper + 0.125 m
+    enabled=True)
+PHYSICS_PRESETS = dict(default=DEFAULT_PHYSICS, serbot_measured=SERBOT_MEASURED_PHYSICS)
+
 
 def validate_physics(settings=None):
+    """Return a complete physics dict.
+
+    ``settings`` is None (defaults), a preset name, or an object of overrides
+    that may name its base with ``preset``. Only a named preset adds the
+    ``preset`` key, so the default result is unchanged.
+    """
+    if isinstance(settings, str):
+        settings = dict(preset=settings)
     if settings is not None and not isinstance(settings, dict):
         raise ValueError('physics must be an object')
-    result = dict(DEFAULT_PHYSICS)
+    preset = (settings or {}).get('preset')
+    if preset is not None and (not isinstance(preset, str) or preset not in PHYSICS_PRESETS):
+        raise ValueError('physics preset: '+', '.join(PHYSICS_PRESETS))
+    result = dict(PHYSICS_PRESETS[preset] if preset is not None else DEFAULT_PHYSICS)
     limits = dict(max_linear=(.01, .5), max_angular=(.01, 3.), max_acceleration=(.01, 100.),
                   max_deceleration=(.01, 100.), max_angular_acceleration=(.01, 100.),
                   body_margin=(0., .2), guard_distance=(0., 2.))
     for key, value in (settings or {}).items():
+        if key == 'preset':
+            continue
         if key not in result:
             raise ValueError('unknown physics setting: '+key)
         if key == 'enabled':
@@ -34,6 +62,8 @@ def validate_physics(settings=None):
             if not lo <= value <= hi:
                 raise ValueError(f'{key}: {lo}..{hi}')
         result[key] = value
+    if preset is not None:
+        result['preset'] = preset
     return result
 
 

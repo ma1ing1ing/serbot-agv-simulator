@@ -44,13 +44,21 @@ def main():
     parser.add_argument('--count', type=int, default=5)
     parser.add_argument('--time-limit', type=float, default=10)
     parser.add_argument('--observation-mode', choices=('oracle', 'sensor'), default='oracle')
+    parser.add_argument('--physics', choices=('default', 'serbot_measured'), default=None,
+                        help='주행 제한 프리셋. 생략하면 기본값 그대로')
+    parser.add_argument('--serbot-sensors', action='store_true', help='관측에 SerBot 라이다·초음파 블록 추가')
+    parser.add_argument('--catch-distance', type=float, default=None, help='잡힘 중심 거리(m). 생략하면 기본값')
     args = parser.parse_args()
     try:
         controller = load_controller(args.controller)
-        env = PlayEnv(game=args.game,controller=controller,observation_mode=args.observation_mode)
+        env = PlayEnv(game=args.game,controller=controller,observation_mode=args.observation_mode,
+                      physics=args.physics,serbot_sensors=args.serbot_sensors)
+        settings = {'time_limit': args.time_limit}
+        if args.catch_distance is not None:
+            settings['catch_distance'] = args.catch_distance
         try:
             observation, info = env.reset(seed=args.seed, scenario=args.scenario, count=args.count,
-                                          settings={'time_limit': args.time_limit})
+                                          settings=settings)
             total_reward = 0.
             terminated = truncated = False
             while not (terminated or truncated):

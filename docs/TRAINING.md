@@ -149,6 +149,8 @@ finally:
 | `body_margin` / `guard_distance` | 0.02 / 0.2 | m |
 | `enabled` | true | false는 이상적인 즉시 속도 적용으로 이전 동작 비교용 |
 
+선택 프리셋 `physics='serbot_measured'`(또는 `{'preset': 'serbot_measured', ...}`)는 우리 로봇 운전기에서 가져온 값(회전 40°/s, 가감속 0.3 m/s² 등)을 씁니다. 기본값과 다른 환경이므로 결과를 구분해 보고합니다. 값과 근거는 [심청이 연결](SHIMCHEONG.md#1-주행-제한-프리셋-serbot_measured)에 있습니다.
+
 ## Gymnasium 연결(선택)
 
 강화학습 도구와 연결할 때만 추가 의존성을 설치합니다. 일반 서버·로컬 제어기 실행에는 필요하지 않습니다.

@@ -9,5 +9,6 @@
 - [게임 규칙과 모델](../docs/SIMULATION.md)
 - [구조](../docs/ARCHITECTURE.md)
 - [개발과 테스트](../docs/DEVELOPMENT.md)
+- [선택: 심청이 연결](../docs/SHIMCHEONG.md)
 
 저장소 루트에서 `python3 -m simulator.server`로 실행합니다.
