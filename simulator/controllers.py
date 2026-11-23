@@ -40,6 +40,7 @@ class _PursuitController:
     model_version = 'game-rules-1'
     eligible_states = ('free', 'rescuing', 'unknown')
     active_phases = ('chasing',)
+    target_margin = .3
 
     def __init__(self):
         self.reset()
@@ -63,11 +64,19 @@ class _PursuitController:
         return dict(id=child['id'], x=robot['x']+math.cos(h)*right-math.sin(h)*forward,
                     z=robot['z']+math.sin(h)*right+math.cos(h)*forward)
 
+    @staticmethod
+    def _target_bearing(target):
+        return target['bearing']
+
     def predict(self, observation):
         if self._inactive(observation):
             self.target_id = None
             return MotionAction()
         return self._pursue(observation)
+
+    def _select_target(self, candidates, observation):
+        return min(candidates, key=lambda c: (
+            c['distance'] - (self.target_margin if c['id'] == self.target_id else 0.), c['id']))
 
     def _pursue(self, observation):
         robot, rules = observation['robot'], observation['rules']
@@ -76,9 +85,9 @@ class _PursuitController:
         if not candidates:
             self.target_id = None
             return MotionAction()
-        target = min(candidates, key=lambda c: (c['distance']-(.3 if c['id'] == self.target_id else 0.), c['id']))
+        target = self._select_target(candidates, observation)
         self.target_id = target['id']
-        desired = robot['heading']+target['bearing']
+        desired = robot['heading']+self._target_bearing(target)
         if observation['source'] == 'oracle':
             points = [self._world_point(robot, c) for c, mask in zip(observation['children'], observation['child_mask']) if mask]
             xmin, xmax, zmin, zmax = observation['bounds']

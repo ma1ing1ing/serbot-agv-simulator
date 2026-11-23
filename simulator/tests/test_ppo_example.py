@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from simulator.contracts import SCHEMA_VERSION
 from simulator.examples.ppo_controller import PPOController
@@ -44,6 +45,29 @@ class PPOInputTests(unittest.TestCase):
                         ('numpy', 'gymnasium', 'torch', 'stable_baselines3')),
                      'install training extra and stable-baselines3 for real PPO checks')
 class PPOIntegrationTests(unittest.TestCase):
+    def test_training_counts_each_catch_and_only_stepped_episodes(self):
+        from simulator.gym_env import GymPlayEnv
+
+        step = GymPlayEnv.step
+
+        def step_with_captures(env, action):
+            world = env.environment.world
+            # Two catches on step one, the final catch on step two.
+            indices = (0, 1) if world.frame == 0 else (2,)
+            for i in indices:
+                world.children[i].update(x=world.robot['x'] + (.6 if i == 0 else -.6),
+                                         z=world.robot['z'])
+            return step(env, action)
+
+        with tempfile.TemporaryDirectory() as temporary, patch.object(GymPlayEnv, 'step', step_with_captures):
+            output = Path(temporary) / 'tag'
+            train(steps=256, count=3, output=output)
+            config = json.loads((output / 'config.json').read_text())
+            self.assertEqual(config['training_capture_events'], 384)
+            self.assertEqual(config['training_episodes_with_capture'], 128)
+            self.assertEqual(config['training_episodes_started'], 128)
+            self.assertEqual(config['training_episodes_finished'], 128)
+
     def test_real_training_round_trip_and_baseline_comparison(self):
         from simulator.controllers import RuleController
         from simulator.environment import PlayEnv
@@ -54,6 +78,10 @@ class PPOIntegrationTests(unittest.TestCase):
             path = train(game='tag', steps=256, count=1, time_limit=1, output=output)
             config = json.loads((output / 'config.json').read_text())
             self.assertEqual(config['actual_steps'], 256)
+            self.assertEqual(config['training_episodes_finished'], 25)
+            self.assertEqual(config['training_episodes_started'], 26)
+            self.assertEqual(config['training_capture_events'], 0)
+            self.assertEqual(config['training_episodes_with_capture'], 0)
             self.assertTrue(config['training_episode_seeds'])
             self.assertEqual({item.name for item in output.iterdir()}, {'model.zip', 'config.json'})
             first, reloaded = PPOController(path, 'tag'), PPOController(path, 'tag')

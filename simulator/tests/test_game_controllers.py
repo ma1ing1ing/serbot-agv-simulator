@@ -10,6 +10,7 @@ from simulator.controllers import (
 )
 from simulator.engine import World
 from simulator.environment import PlayEnv
+from simulator.examples.tag_pursuit import ClosingTagController, LeadTagController, SteadyTagController
 
 
 CONTROLLERS = (
@@ -177,6 +178,65 @@ class GameControllerTests(unittest.TestCase):
                     traces.append(trace)
             with self.subTest(mode=mode):
                 self.assertEqual(traces[0], traces[1])
+
+
+class TagExperimentTests(unittest.TestCase):
+    def test_closing_prefers_a_nearby_approaching_challenger_after_one_second(self):
+        world = world_for('tag', count=4)
+        baseline, closing = TagController(), ClosingTagController()
+        for child, distance in zip(world.children, (1., 2., 3., 6.)):
+            child['z'] = distance
+        for policy in (baseline, closing):
+            policy.predict(world.observe())
+            self.assertEqual(policy.target_id, 0)
+        world.time = 1.
+        for child, distance in zip(world.children, (3., 2., 2.2, 2.4)):
+            child['z'] = distance
+        baseline.predict(world.observe())
+        closing.predict(world.observe())
+        self.assertEqual(baseline.target_id, 1)
+        self.assertEqual(closing.target_id, 2)  # ID 3 closes faster but lies outside the band.
+        closing.reset()
+        self.assertEqual(closing.predict(world.observe()), baseline.predict(world.observe()))
+        self.assertEqual(closing.target_id, 1)
+
+    def test_closing_challenger_must_clear_the_current_target_margin(self):
+        world = world_for('tag', count=3)
+        closing = ClosingTagController()
+        for child, distance in zip(world.children, (1., 2., 4.)):
+            child['z'] = distance
+        closing.predict(world.observe())
+        world.time = 1.
+        for child, distance in zip(world.children, (2.4, 2., 2.2)):
+            child['z'] = distance
+        closing.predict(world.observe())
+        self.assertEqual(closing.target_id, 1)  # ID 2 closes but is only 0.2 m closer than ID 0.
+
+    def test_switch_margin_keeps_current_target_until_another_is_closer(self):
+        world = world_for('tag', count=2)
+        baseline, steady = TagController(), SteadyTagController()
+        for controller in (baseline, steady):
+            controller.predict(world.observe())
+            self.assertEqual(controller.target_id, 0)
+        world.children[0]['z'] = 2.5  # Target 1, at 2.0 m, is 0.5 m closer.
+        for controller, expected in ((baseline, 1), (steady, 0)):
+            controller.predict(world.observe())
+            self.assertEqual(controller.target_id, expected)
+        world.children[0]['z'] = 3.
+        steady.predict(world.observe())
+        self.assertEqual(steady.target_id, 1)
+
+    def test_lead_uses_relative_velocity_without_changing_target_priority(self):
+        world = world_for('tag', count=2)
+        world.children[0].update(x=0., z=2., vx=1., vz=0.)
+        world.children[1].update(x=-2.03, z=0., vx=0., vz=0.)
+        baseline, lead = TagController(), LeadTagController()
+        obs = world.observe()
+        self.assertEqual(baseline.predict(obs).angular_rps, 0.)
+        expected_turn = 3 * math.atan2(-.6, 2.)
+        self.assertAlmostEqual(lead.predict(obs).angular_rps, expected_turn)
+        self.assertEqual(lead.target_id, 0)
+        self.assertEqual(lead.target_id, baseline.target_id)
 
 
 if __name__ == '__main__':
