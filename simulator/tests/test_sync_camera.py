@@ -44,6 +44,14 @@ class FakeRenderer(threading.Thread):
             except HTTPError as exc:
                 self.uploads.append((request['tick'], request['width'], request['height'], exc.code))
 
+    def wait_uploads(self, count, timeout=5.):
+        # The server answers the waiting client as soon as it stores the frame,
+        # which can be before this thread has read its own POST response.
+        deadline = time.monotonic()+timeout
+        while len(self.uploads) < count and time.monotonic() < deadline:
+            time.sleep(.005)
+        return len(self.uploads)
+
 
 class SyncCameraTests(unittest.TestCase):
     @classmethod
@@ -84,9 +92,10 @@ class SyncCameraTests(unittest.TestCase):
         self.assertEqual(tick, 5)
         self.assertEqual(self.robot.camera_frame_sync(tick, width=1280, height=720, fov_deg=43.3, timeout=5), fixture(5))
         # A repeated request for the same tick and size is served from the last frame.
-        uploads = len(self.renderer.uploads)
+        self.assertEqual(self.renderer.wait_uploads(2), 2)
         self.assertEqual(self.robot.camera_frame_sync(tick, width=1280, height=720, fov_deg=43.3, timeout=5), fixture(5))
-        self.assertEqual(len(self.renderer.uploads), uploads)
+        time.sleep(.1)                       # several renderer polls: none may upload again
+        self.assertEqual(len(self.renderer.uploads), 2)
         self.assertEqual([u[1:] for u in self.renderer.uploads], [(1280, 720, 200)]*2)
         with urlopen(self.url+'/api/state') as response:
             self.assertNotIn('camera_sync', json.loads(response.read()))
