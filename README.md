@@ -2,7 +2,7 @@
 
 SerBot AGV용 AI를 개발할 때 사용하는 로컬 3D 시뮬레이터입니다. 가상 아이들의 움직임과 로봇 시점의 영상을 제공하고, 외부 Python 프로그램에서 로봇을 제어할 수 있습니다.
 
-**술래잡기·얼음땡·무궁화꽃이 피었습니다**를 지원합니다. 아이마다 속도·반응 시간·체력·구조 성향이 다르며 게임별로 도망·잡힘·구조·정지·탈락을 처리합니다. 로봇 자동 제어는 정답 위치를 사용하는 규칙 기반 시연입니다. 영상 인식 AI와 학습된 모델은 포함하지 않으며, 선택적으로 실행하는 PPO 학습 예제를 제공합니다.
+**술래잡기·얼음땡·무궁화꽃이 피었습니다**를 지원합니다. 아이마다 속도·반응 시간·체력·구조 성향이 다르며 게임별로 도망·잡힘·구조·정지·탈락을 처리합니다. 로봇 자동 제어는 정답 위치를 사용하는 규칙 기반 시연입니다. PPO 학습 예제와 외부 심청이 주행 모델을 연결하는 실험용 CLI를 제공합니다.
 
 ![시뮬레이터 화면](docs/assets/preview.jpg)
 
@@ -88,10 +88,10 @@ python3 -m simulator.examples.controller_client --game freeze_tag --controller m
 
 ## 선택: 심청이 주행 모델 연결
 
-우리 안내견 로봇 주행 모델 **심청이**(Hugging Face `koreashin/simcheongi`)를 연결할 때만 쓰는 선택 기능이 있습니다. 실측 주행 제한 프리셋 `serbot_measured`, 관측에 붙는 SerBot 라이다 400빔·초음파 6개 블록, 요청한 tick의 상태로 렌더링하는 동기 카메라, 심청이 제어기 예제입니다. **모두 기본 꺼짐**이며 켜지 않으면 기존 결과가 그대로입니다. 심청이는 복도·경로 주행용으로 학습한 모델이며 게임용으로 학습·검증하지 않았습니다. [켜는 방법·근거·한계](docs/SHIMCHEONG.md)를 참고하세요.
+안내견 로봇 주행 모델 **심청이**(Hugging Face `koreashin/simcheongi`)를 별도 패키지로 설치해 실험용 CLI에서 실행할 수 있습니다. 예제는 `serbot_measured` 주행 프리셋, 가상 라이다 400빔·초음파 6채널, 선택적 [동기 카메라](docs/API.md#동기-카메라)를 사용합니다. 복도에서 주어진 경로를 따라가도록 학습된 모델로, 게임에서는 시뮬레이터가 추격 대상을 골라 경로를 제공합니다. [설치·실행 방법](docs/SHIMCHEONG.md#4-심청이-제어기-예제)을 참고하세요.
 
 ```bash
-python3 -m simulator.evaluate --game tag --controllers rule --physics serbot_measured --serbot-sensors
+python3 -m simulator.examples.shimcheong_controller --game tag --frames blank --device cpu
 ```
 
 ## 내 Python 영상 AI와 연결

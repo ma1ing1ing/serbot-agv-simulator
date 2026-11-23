@@ -86,26 +86,26 @@ finally:
 - 단계 실행(`training_reset`) 또는 일시정지 상태에서만 동작합니다. 세계가 흐르는 중이거나 tick·epoch가 다르면 409, 시간 안에 렌더링되지 않으면 504, 잘못된 값은 400입니다. 크기는 최대 1280 × 960, `fov`는 세로 화각(°)입니다.
 - **브라우저 탭이 열려 있고 활성 상태여야 합니다.** 백그라운드 탭은 렌더링을 멈춥니다. 한 장에 상태 확인 주기(65 ms)와 렌더링·JPEG 시간이 더해집니다.
 - 카메라 위치는 시뮬레이터 카메라(높이 1.04 m) 그대로이고, 43.3°는 로봇 카메라(1280 × 720)의 공칭 수평 화각 70.4°를 16:9 세로 화각으로 바꾼 값이며 보정하지 않았습니다. 실제 로봇 카메라의 설치 높이는 이 브랜치에서 확인하지 않았습니다. 장면도 단순한 3D 모델이라 **모델이 학습한 영상과 많이 다릅니다.**
-- **확인 범위:** 자동 테스트는 가짜 렌더러와 JPEG 형식의 fixture로 서버 프로토콜(tick·epoch·요청 ID 일치, 시간 초과, 거부)을 검사합니다. 이 브랜치를 만든 환경에는 WebGL이 되는 브라우저가 없어 **실제 렌더링 결과는 확인하지 못했습니다.** 처음 쓸 때 브라우저를 열고 위 예제로 tick마다 영상이 바뀌는지 확인하세요.
+- 자동 테스트는 가짜 렌더러로 서버 프로토콜을 검사합니다. 별도로 Chrome에서 서로 다른 tick의 1280 × 720 JPEG가 반환되는지 확인했습니다. 공통 API 사용법은 [동기 카메라](API.md#동기-카메라)를 참고하세요.
 
 ## 4. 심청이 제어기 예제
 
 [`shimcheong_controller.py`](../simulator/examples/shimcheong_controller.py)는 `SimcheongiPolicy`를 공통 `reset(seed)`·`predict(observation)` 계약으로 감쌉니다.
 
-**설치:** 자신의 가상환경에 Hugging Face `koreashin/simcheongi` 저장소의 코드를 받아 설치합니다(PyTorch 2.8, transformers 5.14.1, Pillow 12.0.0 고정, 자세한 내용은 그 README). 시뮬레이터 기본 실행·테스트에는 필요 없습니다. 설치하지 않고 실행하면 설치 안내가 담긴 `ImportError`가 납니다.
+**설치:** 자신의 가상환경에 [Hugging Face 모델 저장소](https://huggingface.co/koreashin/simcheongi)의 `simcheongi` 패키지를 설치합니다. 해당 README의 PyTorch 2.8, transformers 5.14.1, Pillow 12.0.0 조건을 따르세요. 실행할 때 공개 가중치를 내려받거나 `--model <로컬 모델 폴더>`로 이미 받은 모델을 지정할 수 있습니다.
 
 ```bash
 # 서버 없이 한 판: 회색 영상(카메라 없음), 라이다·초음파·경로는 시뮬레이터 값
 python3 -m simulator.examples.shimcheong_controller --game tag --frames blank --device cpu
 
 # 서버와 브라우저 탭을 연 상태에서 tick 동기 영상으로 한 판
-python3 -m simulator.examples.shimcheong_controller --game tag --frames sync --device cuda
+python3 -m simulator.examples.shimcheong_controller --game tag --frames sync --device cpu
 
 # 기준 제어기와 같은 조건으로 비교(회색 영상, 모델은 SIMCHEONGI_MODEL·SIMCHEONGI_DEVICE 환경 변수로 지정 가능)
 python3 -m simulator.evaluate --game tag --controllers rule --controller simulator.examples.shimcheong_controller:create_controller --physics serbot_measured --serbot-sensors --catch-distance 0.85 --seeds 10000 10001 10002 --time-limit 30
 ```
 
-Windows에서는 `python3`를 `py`로 바꿉니다. 예제 CLI는 `serbot_measured`, 센서 블록, 잡힘 거리 0.85 m를 자동으로 켭니다.
+Windows에서는 `python3`를 `py`로 바꿉니다. CUDA 환경에서는 `--device cuda`를 선택할 수 있습니다. 예제 CLI는 `serbot_measured`, 센서 블록, 잡힘 거리 0.85 m를 자동으로 켭니다. 기본 예제는 게임 내부의 아이 위치를 사용해 추격 대상과 목표 경로를 정합니다.
 
 | 동작 | 구현 |
 |---|---|
@@ -152,4 +152,4 @@ CPU에서는 결정 하나에 1.5~2.0 s가 걸립니다(모델 README, CPU 32스
 python3 -m unittest simulator.tests.test_serbot_options simulator.tests.test_shimcheong simulator.tests.test_sync_camera -v
 ```
 
-네트워크·GPU·`simcheongi`가 없어도 실행됩니다. `test_serbot_options`는 프리셋 값과 기본값 불변, 센서 배치·좌표계·`World.ray` 일치, 센서를 켜도 같은 동역학, HTTP 옵션을 검사합니다. `test_shimcheong`은 가짜 계획기로 결정 주기·영상 기록·자기 위치 기록·경로·추종 규칙과 설치 안내 오류를 검사합니다. `test_sync_camera`는 로컬 TCP 서버와 가짜 렌더러로 동기 카메라 프로토콜을 검사합니다.
+자동 테스트는 가짜 계획기와 로컬 렌더러 대역으로 센서·제어기·동기 카메라를 검사합니다. 실제 모델(모델 저장소 리비전 `025ab093`)도 Apple M2 CPU와 Chrome 동기 영상으로 확인했습니다. 술래잡기 시드 42에서 시뮬레이션 시간 5초 동안 10회 추론하고 제한 시간에 종료되었습니다. 이 한 판은 설치부터 실행까지 확인하는 용도입니다.
