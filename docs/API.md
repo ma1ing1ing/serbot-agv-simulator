@@ -15,6 +15,7 @@ JSON POST는 `Content-Type: application/json`이 필요합니다. 요청 본문�
 | `GET /api/camera.jpg` | 최신 `image/jpeg`. 준비되지 않았거나 오래된 영상이면 503 JSON. |
 | `GET /api/camera/stream.mjpg` | `multipart/x-mixed-replace; boundary=frame` 연속 영상. |
 | `GET /api/camera/meta` | 준비 상태, 프레임 번호·가상 시각·크기. |
+| `GET /api/camera/sync.jpg` | 단계 실행 또는 일시정지 상태에서 요청한 tick의 JPEG. |
 
 ```bash
 curl http://127.0.0.1:8767/api/camera/meta
@@ -39,6 +40,24 @@ curl http://127.0.0.1:8767/api/camera.jpg --output camera.jpg
 
 한 장이 없는 경우 `camera.jpg`는 503을 반환합니다. MJPEG는 시작 시 준비되지 않았으면 503이고, 스트리밍 도중 렌더링이 중단되면 연결을 종료할 수 있습니다. 여러 탭을 열면 프레임 발행을 공유하므로, 보통 렌더링 탭 하나만 유지하는 것을 권장합니다.
 
+### 동기 카메라
+
+단계 실행에서 관측과 같은 시점의 영상을 받으려면 다음 `training_step()` 전에 `robot.camera_frame_sync(observation['tick'])`을 호출하세요. 렌더링하는 시뮬레이터 탭을 열어 둔 상태에서 요청을 한 장씩 보냅니다.
+
+```python
+from simulator.client import SimRobot
+
+robot = SimRobot()
+session = robot.training_reset(mode='tag', seed=42)
+try:
+    observation = session['observation']
+    jpeg = robot.camera_frame_sync(observation['tick'], width=1280, height=720)
+finally:
+    robot.training_close()
+```
+
+HTTP 요청은 `tick`과 `epoch`가 필수입니다. Python SDK는 단계 실행의 `epoch`를 자동으로 넣습니다. 실시간 게임을 일시정지한 경우에는 Python 호출에도 `epoch`를 직접 전달합니다. `width`, `height`, `fov`(세로 화각), `timeout`(초)은 선택 사항입니다. JPEG 응답에는 `X-Sim-Tick`, `X-Sim-Time`, `X-Epoch`, `X-Frame-Size` 헤더가 포함됩니다. 시간이 흐르는 상태이거나 `tick`·`epoch`가 현재 상태와 다르면 409, 렌더링이 시간 안에 끝나지 않으면 504를 반환합니다.
+
 ## 공통 관측과 단계 실행
 
 `GET /api/observation?mode=oracle`은 버전이 있는 공통 관측을 반환합니다. `mode=sensor`는 외부 검출 정보를 사용하고 정답 아이 좌표로 보충하지 않습니다. 관측의 상대 X는 오른쪽, Z는 앞쪽이며 각도·거리·시간 단위와 8명 슬롯/마스크는 [학습 연결](TRAINING.md)을 참고하세요. `/api/state`는 기존 화면·디버깅용 정답 상태이므로 공통 모델 입력과 구분합니다.
@@ -62,7 +81,7 @@ curl http://127.0.0.1:8767/api/camera.jpg --output camera.jpg
 }
 ```
 
-`physics` 객체로 공통 주행 제한을 지정할 수도 있습니다. 단계 실행 중에는 서버의 실시간 tick이 세계를 진행하지 않으며, 다른 탭의 게임 시작·설정·주행 등 변경 요청은 409를 반환합니다. 로봇 정지, 단계 실행 경로, 관측·검출 등록, 게임 종료는 허용합니다. 학습 중 로봇 정지는 해당 판을 emergency_stop으로 종료합니다. SDK는 초기화 epoch를 후속 요청에 포함하고 오래된 요청은 409로 거부합니다. `training/close`로 명시적으로 해제합니다. 영상 렌더러와 단계 실행은 자동 동기화되지 않으므로 영상의 epoch·가상 시각을 따로 확인해야 합니다.
+`physics` 객체로 공통 주행 제한을 지정할 수도 있습니다. 단계 실행 중에는 서버의 실시간 tick이 세계를 진행하지 않으며, 다른 탭의 게임 시작·설정·주행 등 변경 요청은 409를 반환합니다. 로봇 정지, 단계 실행 경로, 관측·검출 등록, 게임 종료는 허용합니다. 학습 중 로봇 정지는 해당 판을 emergency_stop으로 종료합니다. SDK는 초기화 epoch를 후속 요청에 포함하고 오래된 요청은 409로 거부합니다. `training/close`로 명시적으로 해제합니다. 관측과 같은 tick의 영상이 필요하면 [동기 카메라](#동기-카메라)를 사용하세요.
 
 `info`에는 게임·단계·종료 이유·시드·시나리오·관측 출처·시간·tick과 `metrics`가 있습니다. 지표는 최소 중심 거리, 막힌 이동 시도, 근접 단계 수, 선속도/각속도 변화, 최대 선가속도/각가속도, 표본 수와 누적 보상을 포함합니다. 최소 중심 거리는 몸체 사이 빈 공간을 뜻하지 않습니다.
 
@@ -186,6 +205,7 @@ LiDAR의 각도 0은 로봇의 정면이며, 양의 각도는 왼쪽입니다. �
 | 409 | 초기화 이전 영상, 또는 단계 실행 중 허용되지 않는 실시간 상태 변경 |
 | 500 | 기록 저장 실패. 저장 공간·쓰기 권한 확인 |
 | 503 | 사용할 수 있는 카메라 프레임 없음 |
+| 504 | 동기 카메라 렌더링 대기 시간 초과 |
 
 `GET /api/session`, `POST /api/camera/frame`은 브라우저 렌더러용 내부 프로토콜입니다. 일반 AI 프로그램은 영상을 읽기만 하면 됩니다. 렌더러 토큰은 서버 실행 시 생성되는 임시 값이며, 실제 로봇 인증 정보가 아닙니다.
 

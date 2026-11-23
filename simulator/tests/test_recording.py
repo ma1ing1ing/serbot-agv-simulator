@@ -12,7 +12,7 @@ from simulator.tests.test_http_routes import RouteTests
 
 
 def read_lines(path):
-    return [json.loads(line) for line in path.read_text().splitlines()]
+    return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
 
 
 class RecordingTests(unittest.TestCase):
@@ -44,10 +44,10 @@ class RecordingTests(unittest.TestCase):
             self.assertTrue(steps[-1]['truncated'])
             self.assertFalse(steps[-1]['terminated'])
             self.assertEqual([e['kind'] for e in events].count('episode_end'), 1)
-            summary = json.loads((directory/'summary.json').read_text())
+            summary = json.loads((directory/'summary.json').read_text(encoding='utf-8'))
             self.assertEqual(summary['samples'], 11)
             self.assertEqual(summary['end_reason'], 'time_limit')
-            self.assertEqual(len(json.loads((directory/'config.json').read_text())['code_sha256']), 64)
+            self.assertEqual(len(json.loads((directory/'config.json').read_text(encoding='utf-8'))['code_sha256']), 64)
 
     def test_reset_restart_and_manual_finish_flush_the_old_recording(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -58,7 +58,7 @@ class RecordingTests(unittest.TestCase):
                 if action == 'reset': w.reset()
                 elif action == 'restart': w.start_game('freeze_tag')
                 else: w.finish_game()
-                summary = json.loads((directory/'summary.json').read_text())
+                summary = json.loads((directory/'summary.json').read_text(encoding='utf-8'))
                 self.assertEqual(summary['end_reason'], 'reset' if action == 'restart' else action)
                 if action == 'user_stopped':
                     w.finish_game()
@@ -103,10 +103,10 @@ class RecordingTests(unittest.TestCase):
             root = Path(temp)/'batch'
             with patch.object(World, 'tick', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
                 run(root, episodes=1)
-            self.assertEqual(json.loads((root/'manifest.json').read_text())['status'], 'interrupted')
+            self.assertEqual(json.loads((root/'manifest.json').read_text(encoding='utf-8'))['status'], 'interrupted')
             summaries = list(root.rglob('summary.json'))
             self.assertEqual(len(summaries), 1)
-            self.assertEqual(json.loads(summaries[0].read_text())['end_reason'], 'batch_interrupted')
+            self.assertEqual(json.loads(summaries[0].read_text(encoding='utf-8'))['end_reason'], 'batch_interrupted')
 
 
 class RecordingRouteTests(unittest.TestCase):
