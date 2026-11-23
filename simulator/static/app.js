@@ -14,6 +14,7 @@ let scene, renderer, sensorRenderer, camera, sensorCamera, controls, robot, path
 let ready = false;
 let motionPack=null, stateReceivedAt=0, lastAnimationAt=0;
 let replayInfo=null, renderedEpoch='', renderedRevision=-1;
+let syncRenderer=null, syncCamera=null, syncSize='', syncBusy=false, syncDone='';
 
 async function loadReplay() {
   try {replayInfo=await api('/api/replay');}
@@ -314,6 +315,39 @@ async function publishFrame(now) {
   } catch(e) {dom['camera-status'].textContent='영상 연결 확인';}
   finally {robot.visible=true;uploadBusy=false;}
 }
+// Opt-in tick-synchronized frame (GET /api/camera/sync.jpg). The server lists a pending request in
+// /api/state; this tab renders it only from a snapshot of exactly that tick (stepped or paused world,
+// so children snap to the state without interpolation) and uploads it with the request id.
+async function publishSyncFrame(snapshot) {
+  const request=snapshot.camera_sync;
+  if(!request||request.id===syncDone||syncBusy||uploadBusy||!ready||!publisher) return;
+  if(request.epoch!==snapshot.epoch||request.tick!==request.state_tick) return;
+  if(snapshot.execution_mode!=='stepped'&&!snapshot.paused) return;
+  syncBusy=true;
+  try {
+    animateChildren(performance.now());
+    if(!syncRenderer) {
+      syncRenderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});syncRenderer.setPixelRatio(1);
+      syncRenderer.shadowMap.enabled=true;syncRenderer.shadowMap.type=THREE.PCFSoftShadowMap;syncRenderer.outputColorSpace=THREE.SRGBColorSpace;
+      syncRenderer.toneMapping=THREE.ACESFilmicToneMapping;syncRenderer.toneMappingExposure=1.23;
+      syncCamera=new THREE.PerspectiveCamera(75,4/3,.05,40);
+    }
+    const size=`${request.width}x${request.height}@${request.fov}`;
+    if(size!==syncSize) {
+      syncRenderer.setSize(request.width,request.height,false);
+      syncCamera.aspect=request.width/request.height;syncCamera.fov=request.fov;syncCamera.updateProjectionMatrix();syncSize=size;
+    }
+    syncCamera.position.copy(sensorCamera.position);syncCamera.quaternion.copy(sensorCamera.quaternion);
+    robot.visible=false;syncRenderer.render(scene,syncCamera);robot.visible=true;
+    const blob=await new Promise(resolve=>syncRenderer.domElement.toBlob(resolve,'image/jpeg',.92));
+    if(blob) {
+      const response=await fetch('/api/camera/frame',{method:'POST',headers:{'Content-Type':'image/jpeg','X-Publisher':publisher,
+        'X-Sim-Time':String(snapshot.time),'X-Epoch':snapshot.epoch,'X-Sim-Tick':String(request.tick),'X-Sync-ID':request.id},body:blob});
+      if(response.ok||response.status===409) syncDone=request.id;
+    }
+  } catch(e) {dom['camera-status'].textContent='동기 영상 확인';}
+  finally {robot.visible=true;syncBusy=false;}
+}
 function animate(now) {
   requestAnimationFrame(animate);
   if(!ready) return;
@@ -338,6 +372,7 @@ async function poll() {
     }
     dom.connection.classList.remove('offline');dom.connection.innerHTML='<i></i> 로컬 시뮬레이터 연결됨';
     updateWorld();updateUI();
+    if(state.camera_sync) publishSyncFrame(state);
   } catch(e) {dom.connection.classList.add('offline');dom.connection.innerHTML='<i></i> 서버 연결 끊김';dom['camera-status'].textContent='연결 끊김';}
   finally {polling=false;}
 }

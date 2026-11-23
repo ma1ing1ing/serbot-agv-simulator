@@ -30,11 +30,11 @@ class SimRobot:
     def from_env(cls):
         return cls()
 
-    def _request(self, path, data=None, *, binary=False):
+    def _request(self, path, data=None, *, binary=False, timeout=5):
         body=None if data is None else json.dumps(data,allow_nan=False).encode()
         request=Request(self.url+path,data=body,headers={'Content-Type':'application/json'})
         try:
-            with urlopen(request,timeout=5) as response:
+            with urlopen(request,timeout=timeout) as response:
                 raw=response.read()
                 return raw if binary else json.loads(raw)
         except HTTPError as exc:
@@ -79,6 +79,26 @@ class SimRobot:
     def camera_frame(self, output_path=None):
         """Actual 640×480 virtual camera JPEG; a fresh browser renderer is required."""
         frame=self._request('/api/camera.jpg',binary=True)
+        if output_path is not None:
+            path=Path(output_path)
+            path.parent.mkdir(parents=True,exist_ok=True)
+            path.write_bytes(frame)
+        return frame
+
+    def camera_frame_sync(self, tick, epoch=None, *, width=640, height=480, fov_deg=75., timeout=10., output_path=None):
+        """JPEG rendered from the world state of exactly ``tick`` (opt-in).
+
+        Works while the world does not advance (``training_reset`` stepped
+        execution, or a paused world) and a browser tab is open and active.
+        ``epoch`` defaults to the current training session. ``fov_deg`` is the
+        vertical field of view. Raises SimulationError (504) if no renderer
+        delivers the frame within ``timeout`` seconds.
+        """
+        epoch=epoch if epoch is not None else getattr(self,'_training_epoch',None)
+        if epoch is None:
+            raise ValueError('epoch is required outside a training session')
+        query=urlencode(dict(tick=int(tick),epoch=epoch,width=int(width),height=int(height),fov=float(fov_deg),timeout=float(timeout)))
+        frame=self._request('/api/camera/sync.jpg?'+query,binary=True,timeout=float(timeout)+5)
         if output_path is not None:
             path=Path(output_path)
             path.parent.mkdir(parents=True,exist_ok=True)
