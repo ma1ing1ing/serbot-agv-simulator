@@ -218,7 +218,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path=='/api/training/reset':
             env=PlayEnv(data.get('mode','tag'),observation_mode=data.get('observation_mode','oracle'),
-                        dt=data.get('dt',.1),physics=data.get('physics'),world=w)
+                        dt=data.get('dt',.1),physics=data.get('physics'),world=w,
+                        serbot_sensors=data.get('serbot_sensors',False))
             observation,info=env.reset(seed=data.get('seed',0),scenario=data.get('scenario','open'),
                 count=data.get('count',5),settings=data.get('settings'),record=data.get('record',False))
             self.server.training_env=env
@@ -280,7 +281,8 @@ class Handler(BaseHTTPRequestHandler):
             w.start_game(data.get('mode','tag'),data.get('auto_chase',True),
                          replay_count=data.get('replay_count',16),clip_id=data.get('clip_id','active'),
                          seed=data.get('seed',0),settings=data.get('settings'),record=data.get('record',False),
-                         scenario=data.get('scenario','open'),physics=data.get('physics'),observation_mode=data.get('observation_mode','oracle'))
+                         scenario=data.get('scenario','open'),physics=data.get('physics'),observation_mode=data.get('observation_mode','oracle'),
+                         serbot_sensors=data.get('serbot_sensors',False))
             self.send({'ok':True,'game':w.snapshot()['game']})
         elif path=='/api/replay/seek':
             w.seek_replay(data.get('elapsed',0))

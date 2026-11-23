@@ -114,13 +114,17 @@ class SimRobot:
     def stop(self):
         return self._request('/api/robot/stop',{})
 
-    def start_game(self, mode='tag', *, auto_chase=True, seed=0, settings=None, record=False, scenario='open', physics=None, observation_mode='oracle'):
+    def start_game(self, mode='tag', *, auto_chase=True, seed=0, settings=None, record=False, scenario='open', physics=None, observation_mode='oracle', serbot_sensors=False):
         """Start tag, freeze_tag or red_light.
 
         Manual velocity commands and stop() disable automatic robot pursuit.
         Set auto_chase=False when an external AI will control the robot.
+        ``physics`` may be a preset name such as 'serbot_measured'.
         """
-        return self._request('/api/game/start',dict(mode=mode,auto_chase=auto_chase,seed=seed,settings=settings,record=record,scenario=scenario,physics=physics,observation_mode=observation_mode))
+        body=dict(mode=mode,auto_chase=auto_chase,seed=seed,settings=settings,record=record,scenario=scenario,physics=physics,observation_mode=observation_mode)
+        if serbot_sensors:
+            body['serbot_sensors']=serbot_sensors
+        return self._request('/api/game/start',body)
 
     def finish_game(self):
         """Stop the current game and finalize an enabled recording."""

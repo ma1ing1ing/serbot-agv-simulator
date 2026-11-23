@@ -75,7 +75,8 @@ def _aggregates(rows):
 
 
 def run(game='tag', *, scenarios=None, group=None, seeds=(0, 1, 2), controllers=None,
-        settings=None, count=5, observation_mode='oracle', output=None, physics=None, dt=.1):
+        settings=None, count=5, observation_mode='oracle', output=None, physics=None, dt=.1,
+        serbot_sensors=False):
     """Compare fresh policies in independent environments, without recording.
 
     ``controllers`` maps labels to zero-argument factories. No simulation runs on
@@ -115,13 +116,18 @@ def run(game='tag', *, scenarios=None, group=None, seeds=(0, 1, 2), controllers=
                   observation_mode=observation_mode, recording=False,
                   comparison='same game, scenario and seed; task scores are not comparable across games',
                   rows=[], aggregate=[])
+    if serbot_sensors:
+        # Opt-in input block; absent from default reports.
+        from .serbot_sensors import SCHEMA as SERBOT_SCHEMA
+        report['serbot_sensors'] = SERBOT_SCHEMA
     for label, factory in factories.items():
         for scenario_name in scenario_names:
             for seed in seeds:
                 policy = factory()
                 if not callable(getattr(policy, 'predict', None)) or not callable(getattr(policy, 'reset', None)):
                     raise ValueError('controller에는 reset과 predict가 필요합니다')
-                env = PlayEnv(game=game, controller=policy, observation_mode=observation_mode,physics=physical,dt=dt)
+                env = PlayEnv(game=game, controller=policy, observation_mode=observation_mode,physics=physical,dt=dt,
+                              serbot_sensors=serbot_sensors)
                 report['controller_types'][label] = dict(factory=policy.__class__.__module__+':'+policy.__class__.__qualname__,
                                                          model_version=str(getattr(policy,'model_version','unspecified')))
                 try:
@@ -165,6 +171,10 @@ def main():
     parser.add_argument('--observation-mode', choices=('oracle', 'sensor'), default='oracle')
     parser.add_argument('--dt',type=float,default=.1,help='control interval, multiple of .02 seconds')
     parser.add_argument('--output', type=Path, help='지정할 때만 평가 JSON 저장')
+    parser.add_argument('--physics', choices=('default', 'serbot_measured'), default=None,
+                        help='주행 제한 프리셋. 생략하면 기본값 그대로')
+    parser.add_argument('--serbot-sensors', action='store_true', help='관측에 SerBot 라이다·초음파 블록 추가')
+    parser.add_argument('--catch-distance', type=float, default=None, help='잡힘 중심 거리(m). 생략하면 기본값')
     args = parser.parse_args()
     try:
         from .controllers import IdleController, RuleController
@@ -172,9 +182,13 @@ def main():
         factories = {name:builtins[name] for name in args.controllers}
         if args.controller:
             factories[args.controller] = load_controller(args.controller)
+        settings = {'time_limit':args.time_limit}
+        if args.catch_distance is not None:
+            settings['catch_distance'] = args.catch_distance
         report = run(args.game, scenarios=args.scenario, group=args.group, seeds=args.seeds,
-                     controllers=factories, count=args.count, settings={'time_limit':args.time_limit},
-                     observation_mode=args.observation_mode, output=args.output,dt=args.dt)
+                     controllers=factories, count=args.count, settings=settings,
+                     observation_mode=args.observation_mode, output=args.output,dt=args.dt,
+                     physics=args.physics, serbot_sensors=args.serbot_sensors)
     except (ValueError, TypeError, OSError, ImportError, AttributeError) as exc:
         parser.exit(1, str(exc)+'\n')
     except KeyboardInterrupt:

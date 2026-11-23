@@ -5,12 +5,12 @@ import hashlib
 import json
 from pathlib import Path
 
-from . import games
+from . import games, serbot_sensors
 
 
 def source_hash():
     digest = hashlib.sha256()
-    for name in ('engine.py','games.py','recording.py','contracts.py','controllers.py','motion.py','environment.py','scenarios.py'):
+    for name in ('engine.py','games.py','recording.py','contracts.py','controllers.py','motion.py','environment.py','scenarios.py','serbot_sensors.py'):
         digest.update((Path(__file__).parent/name).read_bytes())
     return digest.hexdigest()
 
@@ -49,6 +49,8 @@ class Episode:
                                            playground_a_used=False, learned_child_policy=False),
                            initial_state=dict(robot=copy.deepcopy(world.robot), children=copy.deepcopy(world.children),
                                               obstacles=copy.deepcopy(world.obstacles), bounds=world.bounds))
+        if getattr(world, 'serbot_sensors', False):
+            self.config['serbot_sensors'] = serbot_sensors.SCHEMA
         if self.directory is not None:
             self.directory.mkdir(parents=True, exist_ok=False)
             try:

@@ -26,8 +26,10 @@ class PlayEnv:
     Controllers receive observations only; evaluation truth stays in info.
     """
     def __init__(self, game='tag', controller=None, observation_mode='oracle', reward_fn=None,
-                 dt=.1, physics=None, *, world=None):
+                 dt=.1, physics=None, *, world=None, serbot_sensors=False):
         games.options(game, 0, None)
+        if not isinstance(serbot_sensors, bool):
+            raise ValueError('serbot_sensors must be a bool')
         if observation_mode not in ('oracle', 'sensor'):
             raise ValueError('observation_mode: oracle or sensor')
         dt = finite(dt, 'dt')
@@ -44,6 +46,7 @@ class PlayEnv:
         self.dt = dt
         self.ticks = round(dt/.02)
         self.physics = validate_physics(physics)
+        self.serbot_sensors = serbot_sensors
         self.world = world if world is not None else World()
         self.active = False
         self.closed = False
@@ -70,7 +73,7 @@ class PlayEnv:
             self.world.start_game(self.game, False, seed=seed, settings=settings, count=count,
                                   scenario=prepared, physics=self.physics, record=record, record_dir=record_dir,
                                   split=split, observation_mode=self.observation_mode,
-                                  execution_mode='stepped', control_dt=self.dt,
+                                  execution_mode='stepped', control_dt=self.dt, serbot_sensors=self.serbot_sensors,
                                   controller_name=getattr(self.controller,'name',self.controller.__class__.__name__) if self.controller else 'external_or_manual')
             self.epoch = self.world.epoch
             if self.controller is not None:

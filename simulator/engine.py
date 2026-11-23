@@ -45,6 +45,7 @@ class World:
             self.execution_mode = 'realtime'
             self.training_action = None
             self.physics = validate_physics()
+            self.serbot_sensors = False
             self.controller = RuleController()
             self.controller_name = 'manual'
             self.controller_observation_mode = 'oracle'
@@ -117,9 +118,11 @@ class World:
     def start_game(self, mode='tag', auto_chase=True, *, replay_count=16, clip_id='active',
                    seed=0, settings=None, record=False, record_dir=None, split='interactive',
                    scenario='open', physics=None, observation_mode='oracle', count=None,
-                   execution_mode='realtime', control_dt=.02, controller_name=None):
+                   execution_mode='realtime', control_dt=.02, controller_name=None, serbot_sensors=False):
         config = games.options(mode, seed, settings) if mode != 'playground_a' else None
         physical = validate_physics(physics)
+        if not isinstance(serbot_sensors, bool):
+            raise ValueError('serbot_sensors must be a bool')
         if controller_name is not None and (not isinstance(controller_name,str) or not controller_name or len(controller_name)>120):
             raise ValueError('controller_name must be a short nonempty string')
         group_count = min(len(self.children),8) if count is None else count
@@ -170,6 +173,7 @@ class World:
             self.game['mode'] = mode
             games.start(self, mode, auto_chase, seed, config)
             self.physics = physical
+            self.serbot_sensors = serbot_sensors
             self.execution_mode = execution_mode
             self.control_dt = control_dt
             self.controller_observation_mode = observation_mode
