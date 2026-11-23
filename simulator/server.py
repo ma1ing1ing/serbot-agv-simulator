@@ -9,6 +9,7 @@ import secrets
 import sys
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
@@ -35,6 +36,10 @@ class SimulationServer(ThreadingHTTPServer):
         self.frame_at = 0
         self.frame_time = 0
         self.frame_epoch = None
+        # Opt-in tick-synchronized frames (GET /api/camera/sync.jpg). The
+        # browser renders a pending request from a state snapshot of that tick.
+        self.sync_request = None
+        self.sync_frame = None
         self.publisher = secrets.token_urlsafe(24)
         threading.Thread(target=self.loop,daemon=True).start()
 
@@ -95,8 +100,15 @@ class Handler(BaseHTTPRequestHandler):
         parsed=urlsplit(self.path)
         path=parsed.path
         if path=='/api/state':
-            state=self.server.world.snapshot()
+            with self.server.world.lock:
+                state=self.server.world.snapshot()
+                tick=self.server.world.frame
             state['camera']=self.server.camera_meta()
+            request=getattr(self.server,'sync_request',None)
+            if request is not None:
+                # Only while a synchronized frame is pending; the renderer
+                # serves it only when state_tick equals the requested tick.
+                state['camera_sync']=dict(request,state_tick=tick)
             self.send(state)
         elif path=='/api/observation':
             try:
@@ -122,6 +134,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.send(self.server.frame,kind='image/jpeg',extra={'X-Frame-ID':meta['frame_id'],'X-Sim-Time':meta['sim_time']})
         elif path=='/api/camera/stream.mjpg':
             self.stream()
+        elif path=='/api/camera/sync.jpg':
+            self.sync_camera(parse_qs(parsed.query))
         elif path=='/api/ultrasonic':
             self.send(self.server.world.ultrasonic())
         elif path=='/api/lidar':
@@ -141,6 +155,59 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 kind=mimetypes.guess_type(target.name)[0] or 'application/octet-stream'
                 self.send(target.read_bytes(),kind=kind)
+
+    def sync_camera(self, query):
+        """Block until the open renderer uploads the frame of exactly this tick.
+
+        Only a world that is not advancing (stepped execution, or paused) can
+        be rendered for a given tick. Without an open, active browser tab the
+        request ends with 504 after ``timeout`` seconds.
+        """
+        server,w=self.server,self.server.world
+        def value(name,default=None):
+            item=query.get(name,[default])[0]
+            if item is None:
+                raise ValueError(name+' is required')
+            return item
+        try:
+            tick=int(value('tick'))
+            epoch=str(value('epoch'))
+            width=int(number(value('width',640),64,1280,'width'))
+            height=int(number(value('height',480),48,960,'height'))
+            fov=round(number(value('fov',75),10,120,'fov'),3)
+            timeout=number(value('timeout',10),.05,60,'timeout')
+        except ValueError as exc:
+            self.send({'error':str(exc)},400)
+            return
+        with w.lock:
+            current_epoch,current_tick=w.epoch,w.frame
+            still=w.execution_mode=='stepped' or w.paused
+        if current_epoch!=epoch:
+            self.send({'error':'재설정 이전의 epoch입니다','epoch':current_epoch},409)
+            return
+        if current_tick!=tick:
+            self.send({'error':'세계가 요청한 tick에 있지 않습니다','tick':current_tick},409)
+            return
+        if not still:
+            self.send({'error':'동기 영상은 단계 실행 또는 일시정지 상태에서만 제공합니다'},409)
+            return
+        key=(epoch,tick,width,height,fov)
+        def matches():
+            frame=server.sync_frame
+            return frame is not None and frame['key']==key
+        with server.frame_lock:
+            if not matches():
+                server.sync_request=dict(id=uuid.uuid4().hex,epoch=epoch,tick=tick,width=width,height=height,fov=fov)
+                ident=server.sync_request['id']
+                server.frame_lock.wait_for(lambda:matches() or server.closed.is_set(),timeout=timeout)
+                if not matches():
+                    if server.sync_request is not None and server.sync_request['id']==ident:
+                        server.sync_request=None
+                    self.send({'error':'브라우저가 시간 안에 해당 tick 영상을 렌더링하지 않았습니다. 시뮬레이터 탭을 열어 두세요.'},504)
+                    return
+            frame=server.sync_frame
+        self.send(frame['jpeg'],kind='image/jpeg',extra={'X-Sim-Tick':tick,'X-Sim-Time':frame['sim_time'],
+                                                          'X-Epoch':epoch,'X-Frame-Size':f'{width}x{height}'})
 
     def stream(self):
         if not self.server.camera_meta()['ready']:
@@ -183,6 +250,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not raw.startswith(b'\xff\xd8') or not raw.endswith(b'\xff\xd9'):
                     raise ValueError('JPEG 영상이 필요합니다')
                 frame_time=number(self.headers.get('X-Sim-Time',0),0,1e12,'sim_time')
+                if self.headers.get('X-Sync-ID') is not None:
+                    self.receive_sync_frame(raw,frame_time)
+                    return
                 with self.server.frame_lock:
                     if self.headers.get('X-Epoch')!=self.server.world.epoch:
                         self.send({'error':'재설정 이전의 프레임입니다'},409)
@@ -208,6 +278,21 @@ class Handler(BaseHTTPRequestHandler):
             pass
         except OSError:
             self.send({'error':'저장 공간과 기록 폴더의 쓰기 권한을 확인하세요.'},500)
+
+    def receive_sync_frame(self,raw,frame_time):
+        server=self.server
+        with server.frame_lock:
+            request=server.sync_request
+            if (request is None or self.headers.get('X-Sync-ID')!=request['id']
+                    or self.headers.get('X-Epoch')!=request['epoch']
+                    or self.headers.get('X-Sim-Tick')!=str(request['tick'])):
+                self.send({'error':'대기 중인 동기 영상 요청과 맞지 않습니다'},409)
+                return
+            key=(request['epoch'],request['tick'],request['width'],request['height'],request['fov'])
+            server.sync_frame=dict(key=key,jpeg=raw,sim_time=frame_time)
+            server.sync_request=None
+            server.frame_lock.notify_all()
+        self.send({'ok':True,'sync':True})
 
     def _dispatch_post(self,path,data):
         w=self.server.world
