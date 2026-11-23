@@ -11,6 +11,8 @@ from dataclasses import asdict, dataclass
 import math
 from numbers import Real
 
+from . import serbot_sensors
+
 SCHEMA_VERSION = 1
 MAX_CHILDREN = 8
 
@@ -138,4 +140,7 @@ def make_observation(world, mode='oracle', *, detections=None):
     while len(result['children']) < MAX_CHILDREN:
         result['children'].append(_blank_child())
         result['child_mask'].append(False)
+    if getattr(world, 'serbot_sensors', False):
+        # Opt-in only: same tick, same geometry; absent by default.
+        result['serbot'] = serbot_sensors.observe(world)
     return result
