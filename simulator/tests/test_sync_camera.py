@@ -4,6 +4,8 @@ A fake renderer thread plays the browser's role (poll /api/state, upload the
 pending frame). JPEG bytes are fixtures; real WebGL rendering is checked
 separately with an open browser tab (docs/SHIMCHEONG.md).
 """
+import importlib.util
+import io
 import json
 import threading
 import time
@@ -130,6 +132,20 @@ class SyncCameraTests(unittest.TestCase):
             urlopen(post)
         self.assertEqual(caught.exception.code, 409)
         caught.exception.close()
+
+    @unittest.skipUnless(importlib.util.find_spec('numpy') and importlib.util.find_spec('PIL'), 'numpy/Pillow not installed')
+    def test_sync_frame_source_decodes_model_size_rgb(self):
+        from PIL import Image
+        from simulator.examples.shimcheong_controller import SyncCameraFrames
+
+        def jpeg(tick):
+            buffer = io.BytesIO()
+            Image.new('RGB', (1280, 720), (90, 120, 150)).save(buffer, 'JPEG')
+            return buffer.getvalue()
+        result = self.robot.training_reset(mode='tag', seed=5, serbot_sensors=True)
+        self.start_renderer(make_jpeg=jpeg)
+        frame = SyncCameraFrames(self.robot, timeout=5)(result['observation'])
+        self.assertEqual(frame.shape, (720, 1280, 3))
 
 
 if __name__ == '__main__':
