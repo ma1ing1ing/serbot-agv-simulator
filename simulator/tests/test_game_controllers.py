@@ -30,6 +30,77 @@ def world_for(mode, count=3):
 
 
 class GameControllerTests(unittest.TestCase):
+    def test_turn_profiles_rotate_in_place_settle_and_hold(self):
+        for profile in ('braking', 'smooth'):
+            for dt in (.02, .1, 1.):
+                with self.subTest(profile=profile, dt=dt), PlayEnv(
+                    'red_light', controller=RedLightController(), dt=dt
+                ) as env:
+                    env.reset(settings={'turn_profile': profile, 'gaze_timing': 'settled'})
+                    w = env.world
+                    for child in w.children:
+                        child['mode'] = 'still'
+                    # Follow one full away turn and its dwell, through the next cue.
+                    started = aligned = None
+                    direction = 0.
+                    for _ in range(round(18 / dt)):
+                        env.step()
+                        self.assertEqual((w.robot['x'], w.robot['z']), (0., -3.35))
+                        if w.game['looking']:
+                            if started is not None:
+                                break
+                            continue
+                        if started is None:
+                            started = w.time
+                        speed = w.robot['angular']
+                        if abs(speed) > .05:
+                            direction = direction or math.copysign(1., speed)
+                            self.assertGreater(speed*direction, 0.)
+                        self.assertLessEqual(abs(speed), 2.4)
+                        self.assertEqual(w.game['watching'], games.watching_start_line(w))
+                        if abs(abs(w.robot['heading']) - math.pi) <= .02 and abs(speed) <= .05:
+                            aligned = aligned if aligned is not None else w.time
+                        if aligned is not None and w.time > aligned:
+                            self.assertEqual(w.requested_action, MotionAction().to_dict())
+                    self.assertIsNotNone(aligned)
+                    self.assertTrue(w.game['looking'])
+                    self.assertGreaterEqual(w.time - dt - aligned + 1e-9, 3.2)
+
+    def test_motion_profile_changes_the_turn_not_the_timed_target_schedule(self):
+        traces = {}
+        for profile in ('baseline', 'braking', 'smooth'):
+            w = World()
+            w.start_game('red_light', settings={'turn_profile': profile})
+            for c in w.children:
+                c['mode'] = 'still'
+            targets, speeds = [], []
+            for _ in range(300):
+                w.tick(.02)
+                targets.append(w.game['looking'])
+                speeds.append(w.robot['angular'])
+            traces[profile] = targets, speeds
+        for profile in ('braking', 'smooth'):
+            self.assertEqual(traces[profile][0], traces['baseline'][0])
+            self.assertNotEqual(traces[profile][1], traces['baseline'][1])
+        self.assertNotEqual(traces['braking'][1], traces['smooth'][1])
+
+    def test_smooth_turn_replans_after_external_control_and_yields_to_pursuit(self):
+        w = world_for('red_light')
+        w.start_game('red_light', settings={'turn_profile': 'smooth'})
+        controller = RedLightController()
+        w.game['elapsed'] = w.time = 2.
+        controller.predict(w.observe())
+        w.time = w.game['elapsed'] = 3.
+        w.robot['heading'] = -1.2
+        observation = w.observe()
+        self.assertEqual(controller.predict(observation), RedLightController().predict(observation))
+        w.game['phase'] = 'escaping'
+        for c in w.children:
+            c['state'] = 'escaping'
+        pursuit = controller.predict(w.observe())
+        w.rules['turn_profile'] = 'baseline'
+        self.assertEqual(pursuit, RedLightController().predict(w.observe()))
+
     def test_capture_or_freeze_changes_target_and_thawed_child_is_eligible_again(self):
         for mode, factory in CONTROLLERS[:2]:
             with self.subTest(mode=mode):
@@ -123,6 +194,39 @@ class GameControllerTests(unittest.TestCase):
                 self.assertLess(abs(robot['angular']), .05)
                 self.assertAlmostEqual(robot['x'], 0.)
                 self.assertAlmostEqual(robot['z'], -3.35)
+
+    def test_settled_gaze_holds_each_heading_for_its_full_dwell(self):
+        for dt in (.02, .1, 1.):
+            with self.subTest(dt=dt), PlayEnv(game='red_light', controller=RuleController(), dt=dt) as env:
+                env.reset(seed=42, settings={'gaze_timing': 'settled', 'time_limit': 25})
+                world = env.world
+                for child in world.children:
+                    child['mode'] = 'still'
+                settled_since = None
+                completed_dwells = []
+                for _ in range(round(20 / dt)):
+                    looking = world.game['looking']
+                    elapsed = world.game['elapsed']
+                    heading = 0. if looking else math.pi
+                    error = (heading - world.robot['heading'] + math.pi) % math.tau - math.pi
+                    if abs(error) <= .02 and abs(world.robot['angular']) <= .05:
+                        if settled_since is None:
+                            settled_since = elapsed
+                    else:
+                        settled_since = None
+                    env.step()
+                    if world.game['looking'] != looking:
+                        self.assertIsNotNone(settled_since)
+                        dwell = 1.8 if looking else 3.2
+                        self.assertGreaterEqual(elapsed - settled_since + 1e-9, dwell)
+                        self.assertLess(elapsed - settled_since, dwell + dt + 1e-9)
+                        completed_dwells.append(looking)
+                        settled_since = None
+                    elif settled_since is not None:
+                        self.assertEqual(world.requested_action, MotionAction().to_dict())
+                self.assertEqual(completed_dwells[:3], [True, False, True])
+                self.assertAlmostEqual(world.robot['x'], 0.)
+                self.assertAlmostEqual(world.robot['z'], -3.35)
 
     def test_red_light_touch_switches_from_gaze_to_chase_and_skips_terminal_children(self):
         controller = RedLightController()

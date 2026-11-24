@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 import copy
+import hashlib
 import importlib
 import json
 from pathlib import Path
@@ -11,6 +12,26 @@ import statistics
 
 from . import games
 from . import scenarios as scenario_library
+
+
+def referee_stages(world):
+    """Score observed play. A final elimination ends the game at drop-off."""
+    events = world.episode.counts
+    reason = world.game['end_reason']
+    detected = events['movement_detected']
+    escorted = events['escort_complete']
+    returned = events['escort_return']
+    returns_due = max(0, escorted - int(reason == 'all_eliminated'))
+    checks = events['referee_check']
+    touched = events['touch'] > 0
+    pursued = world.metrics['pursuit_closing_m'] >= .2
+    chase_finished = touched and reason == 'pursuit_complete'
+    complete = (checks > 0 and detected == escorted and returned == returns_due
+                and (reason == 'all_eliminated' or (chase_finished and pursued)))
+    return dict(advance_opportunities=events['advance_opportunity'], referee_checks=checks,
+                detections=detected, escorts_completed=escorted, returns_due=returns_due,
+                returns_completed=returned, touched=touched, pursuit_attempted=pursued,
+                pursuit_finished=chase_finished, caught=events['catch'], referee_round_complete=complete)
 
 
 def load_controller(reference):
@@ -133,6 +154,8 @@ def run(game='tag', *, scenarios=None, group=None, seeds=(0, 1, 2), controllers=
                 try:
                     observation, info = env.reset(seed=seed, scenario=scenario_name, settings=settings,
                                                   count=count, record=False)
+                    initial = env.world.episode.config['initial_state']
+                    case_hash = hashlib.sha256(json.dumps(initial, sort_keys=True).encode()).hexdigest()
                     done = False
                     total_reward = 0.
                     while not done:
@@ -140,12 +163,31 @@ def run(game='tag', *, scenarios=None, group=None, seeds=(0, 1, 2), controllers=
                         total_reward += reward
                         done = terminated or truncated
                     world = env.world
-                    report['rows'].append(dict(game=game, controller=label, scenario=scenario_name,
-                                                scenario_split=scenario_library.prepare_scenario(scenario_name, count, seed, game=game)['split'],
-                                                seed=seed, end_reason=world.game.get('end_reason'),
-                                                game_time=world.game.get('elapsed', world.time),
-                                                reward_total=total_reward, outcome=outcome(world),
-                                                metrics=copy.deepcopy(info.get('metrics', {}))))
+                    metrics = info['metrics']
+                    flags = []
+                    if game == 'red_light' and world.game['end_reason'] == 'time_limit':
+                        flags.append('timeout')
+                        if metrics['approach_seconds'] and metrics['watching_seconds'] >= .9*metrics['approach_seconds']:
+                            flags.append('constant_watch')
+                        if world.game['touched_by'] is None and metrics['rotation_radians'] > world.time:
+                            flags.append('spinning_without_touch')
+                    row = dict(game=game, controller=label, scenario=scenario_name,
+                               scenario_split=world.scenario['split'], seed=seed,
+                               end_reason=world.game.get('end_reason'), game_time=world.game.get('elapsed', world.time),
+                               reward_total=total_reward, outcome=outcome(world), failure_flags=flags,
+                               initial_state_sha256=case_hash, metrics=copy.deepcopy(metrics))
+                    if game == 'red_light':
+                        stages = referee_stages(world)
+                        row['referee_stages'] = stages
+                        if not stages['referee_checks']:
+                            flags.append('no_referee_check')
+                        if stages['escorts_completed'] < stages['detections']:
+                            flags.append('unfinished_escort')
+                        if stages['returns_completed'] < stages['returns_due']:
+                            flags.append('unfinished_return')
+                        if stages['touched'] and not stages['pursuit_attempted']:
+                            flags.append('no_active_pursuit')
+                    report['rows'].append(row)
                 finally:
                     env.close()
     report['aggregate'] = _aggregates(report['rows'])

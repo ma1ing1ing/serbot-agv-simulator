@@ -1,5 +1,6 @@
 """Game transitions and deterministic synthetic child behaviour."""
 import copy
+import math
 import unittest
 from unittest.mock import Mock
 
@@ -67,7 +68,8 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(sum('게임 종료' in entry['message'] for entry in w.logs), 1)
 
     def test_delayed_stop_is_detected_but_fast_stop_survives(self):
-        w = World(); w.set_count(2); w.start_game('red_light', False)
+        w = World()
+        w.start_game('red_light', False, count=2, settings={'stop_reaction': 'delayed'})
         w.emit=Mock(wraps=w.emit)
         w.robot['heading'] = 3.141592653589793
         advance(w, 1)
@@ -79,6 +81,111 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(w.children[1]['state'], 'stopped')
         self.assertEqual(sum(c.args[0]=='movement_detected' for c in w.emit.call_args_list), 1)
         self.assertEqual(sum(c.args[0]=='stop_response' for c in w.emit.call_args_list), 1)
+
+    def test_delayed_stop_checks_signal_grace_and_sight(self):
+        for case in ('in_view', 'offscreen', 'occluded', 'behind_child', 'still'):
+            with self.subTest(case=case):
+                w = World()
+                count = 2 if case == 'behind_child' else 1
+                w.start_game('red_light', False, count=count, settings={'stop_reaction': 'delayed'})
+                child = w.children[0]
+                child.update(x=0., z=.25, heading=math.pi, moving=True)
+                child['profile']['reaction_time'] = .65
+                if case == 'offscreen':
+                    child.update(x=3., z=-2.2)
+                elif case == 'occluded':
+                    w.obstacles = [dict(x=0., z=-1.8, w=1.1, d=.35)]
+                elif case == 'behind_child':
+                    w.children[1].update(x=0., z=-1.25, mode='still')
+                elif case == 'still':
+                    child.update(moving=False)
+                advance(w, .30)
+                self.assertNotIn('escort', w.game)
+                advance(w, .08)
+                if case == 'in_view':
+                    self.assertEqual(w.game['escort']['child_id'], 0)
+                    self.assertEqual(child['state'], 'eliminated')
+                else:
+                    self.assertNotIn('escort', w.game)
+                    self.assertEqual(w.game['eliminated_ids'], [])
+                    if case != 'still':
+                        self.assertTrue(child['moving'])
+
+    def test_escort_walks_child_to_the_side_and_resumes_with_remaining_children(self):
+        w = World()
+        w.start_game('red_light', scenario='standard', settings={'stop_reaction': 'delayed'})
+        for _ in range(500):
+            w.tick(.02)
+            if 'escort' in w.game:
+                break
+        escort = w.game['escort']
+        child = w.children[escort['child_id']]
+        start = dict(x=child['x'], z=child['z'])
+        waiting = [(c['id'], c['x'], c['z']) for c in w.children if c is not child]
+        self.assertEqual(escort['stage'], 'pickup')
+        self.assertFalse(child['moving'])
+        visited = {escort['stage']}
+        for _ in range(2400):
+            w.tick(.02)
+            if 'escort' not in w.game:
+                break
+            visited.add(escort['stage'])
+        self.assertNotIn('escort', w.game)
+        self.assertEqual(visited, {'pickup', 'lead', 'return'})
+        self.assertGreater(games.distance(child, start), 1.)
+        self.assertLessEqual(games.distance(child, escort['drop']), .2)
+        self.assertEqual(waiting, [(c['id'], c['x'], c['z']) for c in w.children if c is not child])
+        self.assertEqual(w.episode.counts['escort_complete'], 1)
+        self.assertEqual(w.episode.counts['escort_return'], 1)
+        self.assertEqual(w.game['phase'], 'approaching')
+        advance(w, 4)
+        self.assertTrue(any(c['moving'] for c in w.children if c is not child))
+
+    def test_red_light_group_reacts_on_the_same_tick_as_rotation(self):
+        w = World()
+        w.start_game('red_light', False, physics={'enabled': False}, settings={'trajectory_difficulty': 'simple'})
+        w.robot['heading'] = math.pi/2 - .01
+        for child in w.children:
+            child['profile']['reaction_time'] = .65
+        initial = [(child['x'], child['z']) for child in w.children]
+        w.tick(.02)
+        self.assertTrue(w.game['watching'])
+        self.assertTrue(all(c['state'] == 'stopped' for c in w.children))
+        self.assertEqual(initial, [(c['x'], c['z']) for c in w.children])
+
+        w.command(0., 1., .02)
+        w.tick(.02)
+        self.assertFalse(w.game['watching'])
+        self.assertTrue(all(c['state'] == 'approaching' and c['moving'] for c in w.children))
+        self.assertTrue(all(c['z'] < z for c, (_, z) in zip(w.children, initial)))
+
+        moving_positions = [(c['x'], c['z']) for c in w.children]
+        w.command(0., -1., .02)
+        w.tick(.02)
+        self.assertTrue(w.game['watching'])
+        self.assertTrue(all(c['state'] == 'stopped' and not c['moving'] for c in w.children))
+        self.assertEqual(moving_positions, [(c['x'], c['z']) for c in w.children])
+        advance(w, .8)
+        self.assertEqual(w.game['eliminated_ids'], [])
+
+    def test_red_light_default_round_releases_all_children_at_first_touch(self):
+        for timing in ('timed', 'settled'):
+            with self.subTest(timing=timing):
+                w = World()
+                w.start_game('red_light', settings={'gaze_timing': timing})
+                for _ in range(1500):
+                    w.tick(.02)
+                    if w.game['phase'] == 'escaping':
+                        break
+                self.assertEqual(w.game['phase'], 'escaping')
+                self.assertEqual(w.game['eliminated_ids'], [])
+                self.assertTrue(all(c['state'] == 'escaping' and c['action'] == 'escape' for c in w.children))
+                advance(w, .8)
+                self.assertTrue(all(c['running'] for c in w.children))
+                self.assertEqual(w.game['caught_ids'], [])
+                advance(w, w.rules['chase_duration'])
+                self.assertEqual(w.game['end_reason'], 'pursuit_complete')
+                self.assertEqual(set(w.game['escaped_ids']) | set(w.game['caught_ids']), set(range(5)))
 
     def test_red_light_automatic_gaze_and_post_touch_chase(self):
         w = World(); w.start_game('red_light')

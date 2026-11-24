@@ -10,7 +10,7 @@ from . import games, serbot_sensors
 
 def source_hash():
     digest = hashlib.sha256()
-    for name in ('engine.py','games.py','recording.py','contracts.py','controllers.py','motion.py','environment.py','scenarios.py','serbot_sensors.py'):
+    for name in ('engine.py','games.py','recording.py','contracts.py','controllers.py','motion.py','environment.py','scenarios.py','serbot_sensors.py','referee_route.py','friendly_controller.py','friendly_policy.py','models/friendly_referee_v1.json'):
         digest.update((Path(__file__).parent/name).read_bytes())
     return digest.hexdigest()
 

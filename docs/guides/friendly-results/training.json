@@ -1,0 +1,226 @@
+{
+  "model_sha256": "6c2cd066caef3e6cf3a20a28c0aa1e62df07c64dd0e56e85cf48f75f1b8f9e07",
+  "seeds": {
+    "weights": 20261124,
+    "train": 41207,
+    "validation": 51308,
+    "test": 62409
+  },
+  "train_examples": 9000,
+  "train_families": [
+    "steady",
+    "hesitant",
+    "quick",
+    "mixed",
+    "close_group",
+    "partly_hidden"
+  ],
+  "validation_examples": 1200,
+  "epochs": 100,
+  "selected_epoch": 85,
+  "validation_mse": 0.027537435293197632,
+  "torch_version": "2.14.1",
+  "numpy_version": "2.2.6",
+  "validation": {
+    "steady": {
+      "n": 200,
+      "model": {
+        "stride_cost": 0.354,
+        "settle_cost": 0.092203,
+        "gain_cost": 0.001265
+      },
+      "fixed": {
+        "stride_cost": 0.597893,
+        "settle_cost": 0.1063,
+        "gain_cost": 0.027169
+      },
+      "mae": {
+        "away_seconds": 0.348987,
+        "watch_seconds": 0.119058,
+        "gain": 0.014841
+      }
+    },
+    "hesitant": {
+      "n": 200,
+      "model": {
+        "stride_cost": 0.908987,
+        "settle_cost": 0.057901,
+        "gain_cost": 0.001143
+      },
+      "fixed": {
+        "stride_cost": 1.53493,
+        "settle_cost": 0.07895,
+        "gain_cost": 0.028727
+      },
+      "mae": {
+        "away_seconds": 0.379638,
+        "watch_seconds": 0.142161,
+        "gain": 0.013756
+      }
+    },
+    "quick": {
+      "n": 200,
+      "model": {
+        "stride_cost": 0.311844,
+        "settle_cost": 0.141326,
+        "gain_cost": 0.001203
+      },
+      "fixed": {
+        "stride_cost": 0.495776,
+        "settle_cost": 0.175497,
+        "gain_cost": 0.02633
+      },
+      "mae": {
+        "away_seconds": 0.468995,
+        "watch_seconds": 0.15385,
+        "gain": 0.013801
+      }
+    },
+    "mixed": {
+      "n": 200,
+      "model": {
+        "stride_cost": 0.576752,
+        "settle_cost": 0.116796,
+        "gain_cost": 0.001198
+      },
+      "fixed": {
+        "stride_cost": 0.808367,
+        "settle_cost": 0.146684,
+        "gain_cost": 0.033094
+      },
+      "mae": {
+        "away_seconds": 0.410359,
+        "watch_seconds": 0.164872,
+        "gain": 0.014989
+      }
+    },
+    "close_group": {
+      "n": 200,
+      "model": {
+        "stride_cost": 0.661266,
+        "settle_cost": 0.124753,
+        "gain_cost": 0.001516
+      },
+      "fixed": {
+        "stride_cost": 1.170036,
+        "settle_cost": 0.186784,
+        "gain_cost": 0.096481
+      },
+      "mae": {
+        "away_seconds": 0.252056,
+        "watch_seconds": 0.113994,
+        "gain": 0.019322
+      }
+    },
+    "partly_hidden": {
+      "n": 200,
+      "model": {
+        "stride_cost": 0.400883,
+        "settle_cost": 0.097019,
+        "gain_cost": 0.001506
+      },
+      "fixed": {
+        "stride_cost": 0.646749,
+        "settle_cost": 0.115806,
+        "gain_cost": 0.030132
+      },
+      "mae": {
+        "away_seconds": 0.380924,
+        "watch_seconds": 0.141745,
+        "gain": 0.016468
+      }
+    },
+    "overall": {
+      "n": 1200,
+      "model": {
+        "stride_cost": 0.535622,
+        "settle_cost": 0.105,
+        "gain_cost": 0.001305
+      },
+      "fixed": {
+        "stride_cost": 0.875625,
+        "settle_cost": 0.135004,
+        "gain_cost": 0.040322
+      },
+      "mae": {
+        "away_seconds": 0.373493,
+        "watch_seconds": 0.13928,
+        "gain": 0.015529
+      }
+    }
+  },
+  "novel": {
+    "slow_and_quick_together": {
+      "n": 600,
+      "model": {
+        "stride_cost": 1.25885,
+        "settle_cost": 0.207602,
+        "gain_cost": 0.001168
+      },
+      "fixed": {
+        "stride_cost": 1.660317,
+        "settle_cost": 0.190461,
+        "gain_cost": 0.027659
+      },
+      "mae": {
+        "away_seconds": 0.564285,
+        "watch_seconds": 0.313371,
+        "gain": 0.013224
+      }
+    },
+    "near_with_occlusion": {
+      "n": 600,
+      "model": {
+        "stride_cost": 0.657975,
+        "settle_cost": 0.131402,
+        "gain_cost": 0.001772
+      },
+      "fixed": {
+        "stride_cost": 1.09544,
+        "settle_cost": 0.178187,
+        "gain_cost": 0.097156
+      },
+      "mae": {
+        "away_seconds": 0.31373,
+        "watch_seconds": 0.138873,
+        "gain": 0.021752
+      }
+    },
+    "staggered_start": {
+      "n": 600,
+      "model": {
+        "stride_cost": 0.723009,
+        "settle_cost": 0.089457,
+        "gain_cost": 0.001165
+      },
+      "fixed": {
+        "stride_cost": 1.101578,
+        "settle_cost": 0.104169,
+        "gain_cost": 0.025124
+      },
+      "mae": {
+        "away_seconds": 0.51389,
+        "watch_seconds": 0.128417,
+        "gain": 0.013573
+      }
+    },
+    "overall": {
+      "n": 1800,
+      "model": {
+        "stride_cost": 0.879945,
+        "settle_cost": 0.14282,
+        "gain_cost": 0.001368
+      },
+      "fixed": {
+        "stride_cost": 1.285778,
+        "settle_cost": 0.157606,
+        "gain_cost": 0.04998
+      },
+      "mae": {
+        "away_seconds": 0.463968,
+        "watch_seconds": 0.193554,
+        "gain": 0.016183
+      }
+    }
+  }
+}

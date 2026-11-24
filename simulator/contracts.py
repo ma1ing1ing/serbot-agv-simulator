@@ -103,6 +103,26 @@ def make_observation(world, mode='oracle', *, detections=None):
                   rules={key: world.rules[key] for key in ('robot_speed', 'gaze_period', 'look_duration', 'catch_distance')},
                   children=[], child_mask=[], sensors={}, bounds=None, obstacles=[])
     result['robot'].update(vx=robot_vx, vz=robot_vz)
+    if world.game['mode'] == 'red_light':
+        result['game']['watching'] = bool(world.game.get('watching'))
+    if world.game.get('escort') and mode == 'oracle':
+        escort = world.game['escort']
+        result['game']['escort'] = {
+            **{key: escort[key] for key in ('child_id', 'stage', 'waiting')},
+            'goal': dict(escort['goal']),
+            'aligning': escort.get('aligning', False),
+            'routed': bool(escort.get('route')),
+        }
+    if world.game.get('gaze_pause'):
+        result['game']['gaze_elapsed'] = world.game['elapsed'] - world.game['gaze_pause']
+    if world.game['mode'] == 'red_light' and world.rules.get('gaze_timing') in ('settled', 'friendly'):
+        result['rules']['gaze_timing'] = world.rules['gaze_timing']
+        result['control_dt'] = world.control_dt
+    if world.game['mode'] == 'red_light' and world.rules.get('turn_profile', 'baseline') != 'baseline':
+        result['rules'].update(turn_profile=world.rules['turn_profile'],
+                               max_angular=world.physics['max_angular'],
+                               max_angular_acceleration=world.physics['max_angular_acceleration'])
+        result['control_dt'] = world.control_dt
     if mode == 'oracle':
         if len(world.children) > MAX_CHILDREN:
             raise ValueError('controller observations support up to eight game participants; replay is separate')

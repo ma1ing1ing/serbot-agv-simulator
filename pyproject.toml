@@ -20,4 +20,4 @@ serbot-sim = "simulator.server:main"
 packages = ["simulator", "simulator.examples"]
 
 [tool.setuptools.package-data]
-simulator = ["static/*.html", "static/*.css", "static/*.js", "static/vendor/*"]
+simulator = ["models/friendly_referee_v1.json", "static/*.html", "static/*.css", "static/*.js", "static/sounds/*.wav", "static/vendor/*"]

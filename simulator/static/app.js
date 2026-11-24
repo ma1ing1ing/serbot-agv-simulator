@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/OrbitControls.js';
 import {sampleMotion, validateMotionPack} from './motion.js';
+import {redLightCues, RedLightVoice} from './red-light-sounds.js';
 
 const $ = (s) => document.querySelector(s);
 const dom = Object.fromEntries(['viewport','camera-view','children-list','logs','pose','heading','velocity','sim-time','front-distance','camera-status','camera-fps','connection'].map(id => [id, document.getElementById(id)]));
@@ -15,6 +16,28 @@ let ready = false;
 let motionPack=null, stateReceivedAt=0, lastAnimationAt=0;
 let replayInfo=null, renderedEpoch='', renderedRevision=-1;
 let syncRenderer=null, syncCamera=null, syncSize='', syncBusy=false, syncDone='';
+
+const gameVoice = new RedLightVoice();
+const soundToggle = $('#red-light-sound');
+
+function soundUnavailable() {
+  gameVoice.stop();
+  soundToggle.checked = false;
+  toast('놀이 소리를 재생할 수 없어요. 놀이 소리를 다시 켜 주세요.');
+}
+
+function enableGameSound() {
+  if (soundToggle.checked && $('#game-mode').value === 'red_light') {
+    gameVoice.enable().catch(soundUnavailable);
+  }
+}
+soundToggle.addEventListener('change', () => {
+  if (soundToggle.checked) enableGameSound();
+  else gameVoice.stop();
+});
+// A user gesture unlocks audio, including when an API client started the game.
+document.addEventListener('click', enableGameSound);
+document.addEventListener('visibilitychange', () => { if (document.hidden) gameVoice.stop(); });
 
 async function loadReplay() {
   try {replayInfo=await api('/api/replay');}
@@ -362,18 +385,28 @@ async function poll() {
   if(polling) return;
   polling=true;
   try {
-    const previousEpoch=state?.epoch;
-    state=await api('/api/state');stateReceivedAt=performance.now();
-    if(state.epoch!==previousEpoch&&state.game.phase!=='ready') {
+    const previous=state;
+    state=await api('/api/state');
+    const fresh=performance.now()-stateReceivedAt<1500 && !dom.connection.classList.contains('offline');
+    stateReceivedAt=performance.now();
+    if(state.epoch!==previous?.epoch) gameVoice.stop();
+    if(state.epoch!==previous?.epoch&&state.game.phase!=='ready') {
       $('#game-mode').value=state.game.mode;
       const behaviors=new Set(state.children.map(child=>child.behavior_type).filter(Boolean));
       $('#child-behavior').value=behaviors.size===1?[...behaviors][0]:'mixed';
       if(Number.isInteger(state.game.seed)) $('#game-seed').value=state.game.seed;
     }
     dom.connection.classList.remove('offline');dom.connection.innerHTML='<i></i> 로컬 시뮬레이터 연결됨';
+    const quiet = state.game.gaze_timing === 'friendly' && (state.game.phase === 'finished' ||
+      state.game.phase === 'ready' || state.game.held || state.paused || state.game.tracking_lost);
+    if (quiet) gameVoice.stop();
+    else if (soundToggle.checked && !document.hidden && fresh) {
+      const cues = redLightCues(previous, state);
+      if (cues.length) gameVoice.play(cues, state.game.friendly_cue_gain ?? 1).catch(soundUnavailable);
+    }
     updateWorld();updateUI();
     if(state.camera_sync) publishSyncFrame(state);
-  } catch(e) {dom.connection.classList.add('offline');dom.connection.innerHTML='<i></i> 서버 연결 끊김';dom['camera-status'].textContent='연결 끊김';}
+  } catch(e) {gameVoice.stop();dom.connection.classList.add('offline');dom.connection.innerHTML='<i></i> 서버 연결 끊김';dom['camera-status'].textContent='연결 끊김';}
   finally {polling=false;}
 }
 function updateUI() {
@@ -394,7 +427,7 @@ function updateUI() {
   const isReplay=selected==='playground_a';
   const active=['approaching','escaping','chasing','replaying'].includes(phase);
   const names={tag:'술래잡기',freeze_tag:'얼음땡',red_light:'무궁화꽃이 피었습니다'};
-  const details={tag:'로봇을 피해 도망갑니다. 잡히면 멈춥니다.',freeze_tag:'잡히면 얼음! 친구가 가까이 머무르면 다시 움직여요.',red_light:'로봇이 돌아서면 접근하고 바라보면 정지해요. 터치하면 전원 도망갑니다.'};
+  const details={tag:'로봇을 피해 도망갑니다. 잡히면 멈춥니다.',freeze_tag:'잡히면 얼음! 친구가 가까이 머무르면 다시 움직여요.',red_light:'로봇이 출발선 쪽을 바라보면 정지하고, 등을 돌리면 접근합니다. 첫 터치에 출발선으로 달아납니다.'};
   const stages={ready:'게임 대기',chasing:'놀이 진행 중',approaching:'접근 · 시선 정지',escaping:'터치 후 추격',finished:'게임 완료'};
   $('#people-count').disabled=active||isReplay;
   $('#people-count').max=isReplay?16:8;
@@ -403,6 +436,17 @@ function updateUI() {
   $('#auto-chase-control').hidden=isReplay;
   $('#auto-chase').disabled=false;
   if(active&&!isReplay) $('#auto-chase').checked=game.auto_chase;
+  $('#gaze-options').hidden=(active?game.mode:$('#game-mode').value)!=='red_light';
+  $('#gaze-timing').disabled=active;
+  const learnedTiming = $('#gaze-timing').value === 'friendly';
+  if (learnedTiming && !active) $('#turn-profile').value='smooth';
+  $('#turn-profile').disabled=active||learnedTiming||state.execution_mode==='stepped';
+  $('#stop-reaction').disabled=active;
+  if(active&&game.mode==='red_light') {
+    $('#gaze-timing').value=game.gaze_timing||'timed';
+    $('#turn-profile').value=game.turn_profile||'baseline';
+    $('#stop-reaction').value=game.stop_reaction||'immediate';
+  }
   $('#game-options').hidden=isReplay;
   $('#game-seed').disabled=active;$('#game-limit').disabled=active;$('#game-record').disabled=active;
   $('#child-behavior').disabled=active;
@@ -410,10 +454,22 @@ function updateUI() {
   const ep=state.episode;
   $('#record-status').textContent=ep?.recording?`${ep.closed?'저장 완료':'기록 중'} · ${ep.samples}개 시점 · ${ep.directory}`:'기록 저장을 켜면 플레이를 파일로 남깁니다.';
   $('#game-card').dataset.phase=phase;
-  $('#game-stage').textContent=game.held?'놀이 잠깐 멈춤':stages[phase]||phase;
-  const counts=selected==='freeze_tag'?`얼음 ${game.frozen_ids?.length||0} / ${state.children.length}명`:`잡힘 ${game.caught_ids.length} / ${state.children.length}명`;
+  const approachStage=phase==='approaching'&&game.mode==='red_light';
+  const escort=game.escort;
+  const escortStage=escort&&{pickup:'술래가 적발한 아이에게 이동 중',lead:'술래가 아이를 데려가는 중',return:'술래가 놀이 위치로 돌아오는 중'}[escort.stage];
+  const stage=escortStage||(approachStage?(game.watching?'아이들 정지 신호':'아이들 접근 가능'):stages[phase]||phase);
+  $('#game-stage').textContent=game.held?'놀이 잠깐 멈춤':stage;
+  let counts=selected==='freeze_tag'?`얼음 ${game.frozen_ids?.length||0} / ${state.children.length}명`:`잡힘 ${game.caught_ids.length} / ${state.children.length}명`;
+  if(selected==='red_light'&&game.eliminated_ids?.length) counts+=` · 적발 ${game.eliminated_ids.length}명`;
   $('#game-title').textContent=phase==='ready'?(names[selected]||'위치 기록 재생'):`${names[selected]||''} · ${counts}`;
   $('#game-detail').textContent=details[selected]||'';
+  if(approachStage&&game.auto_chase&&!escort&&!game.held&&!state.paused) {
+    const target=game.looking?0:Math.PI;
+    const error=Math.atan2(Math.sin(target-r.heading),Math.cos(target-r.heading));
+    const settled=Math.abs(error)<=.02&&Math.abs(r.angular)<=.05&&Math.abs(r.linear)<=.01;
+    const motion=game.looking?(settled?'앞을 보고 관찰':'앞으로 돌아보기'):(settled?'등을 돌리고 대기':'뒤돌기');
+    $('#game-detail').textContent=`로봇 동작 · ${motion}`;
+  }
   $('#game-start').textContent=phase==='ready'?'게임 시작':'새 게임';
   $('#game-start').disabled=false;
   $('#game-hold').disabled=!active;
@@ -450,7 +506,9 @@ function updateUI() {
       el.querySelector('[value="walk"]').textContent=isTag&&phase!=='ready'?(c.caught?'잡힘':c.running?'달리기':c.motion_kind==='jog'?'조깅':c.resting?'잠깐 쉬기':'걷기'):phase==='escaping'?'도망가기':phase==='approaching'&&c.watched?'시선 · 멈춤':'걷기';
       el.querySelector('[value="still"]').textContent=c.escaped?'출발선 도착':'멈춤';
       el.closest('.child-row').classList.toggle('caught',Boolean(c.caught));
-      el.closest('.child-row').querySelector('.child-name').textContent=c.name+(c.state?' · '+({free:'도망',rescuing:'구조 중',frozen:'얼음',eliminated:'탈락',caught:'잡힘',approaching:'접근',stopped:'정지',escaping:'도망',escaped:'도착'}[c.state]||c.state):'');
+      const escorting=escort?.child_id===c.id&&escort.stage!=='return';
+      const status=escorting?(escort.stage==='pickup'?'적발 · 대기':'술래 따라가는 중'):{free:'도망',rescuing:'구조 중',frozen:'얼음',eliminated:'탈락',caught:'잡힘',approaching:'접근',stopped:'정지',escaping:'도망',escaped:'도착'}[c.state];
+      el.closest('.child-row').querySelector('.child-name').textContent=c.name+(status?' · '+status:'');
       if(state.replay) {
         el.disabled=true;
         el.querySelector('[value="walk"]').textContent=c.visible===false?'기록 없음':c.moving?'이동 중':'멈춤';
@@ -493,6 +551,7 @@ function updateReplayUI(selected) {
   }
   if(!selected) return;
   $('#auto-chase-control').hidden=true;
+  $('#gaze-options').hidden=true;
   $('#game-start').disabled=!replayInfo?.available;
   $('#game-start').textContent=info?'기록 다시 재생':'기록 재생';
   $('#game-hold').disabled=!info||game.phase==='finished';
@@ -524,10 +583,18 @@ $('#people-count').addEventListener('input',e=>$('#people-value').textContent=e.
 $('#people-count').addEventListener('change',e=>act('/api/world/config',{count:Number(e.target.value)}));
 $('#game-start').addEventListener('click',async()=>{
   const mode=$('#game-mode').value;
+  const seedInput=$('#game-seed');
+  if(!seedInput.reportValidity()) return;
+  const settings={time_limit:Number($('#game-limit').value),child_behavior:$('#child-behavior').value};
+  if(mode==='red_light') {
+    settings.gaze_timing=$('#gaze-timing').value;
+    settings.turn_profile=$('#turn-profile').value;
+    settings.stop_reaction=$('#stop-reaction').value;
+  }
   await act('/api/game/start',{mode,auto_chase:$('#auto-chase').checked,
     replay_count:Number($('#replay-count').value),clip_id:$('#replay-clip').value||'active',
-    seed:Number($('#game-seed').value),scenario:'open',
-    settings:{time_limit:Number($('#game-limit').value),child_behavior:$('#child-behavior').value},record:mode!=='playground_a'&&$('#game-record').checked});
+    seed:Number(seedInput.value),scenario:'open',
+    settings,record:mode!=='playground_a'&&$('#game-record').checked});
   if(mode==='playground_a'&&state?.replay) setView('top');
 });
 $('#replay-time').addEventListener('change',e=>act('/api/replay/seek',{elapsed:Number(e.target.value)}));
