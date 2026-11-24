@@ -9,7 +9,9 @@ import json
 import math
 import random
 
-VERSION = 'scenarios-1'
+from .games import watching_start_line
+
+VERSION = 'scenarios-2'
 BOUNDS = (-5.5, 5.5, -4.5, 4.5)
 BEHAVIORS = ('cautious', 'playful', 'helper')
 GROUPS = dict(train=('standard', 'open'),
@@ -150,10 +152,18 @@ def prepare_scenario(name='standard', count=5, seed=0, *, game='tag'):
     elif name == 'cross_room':
         robot['heading'] = math.pi/4
     children = []
+    if game == 'red_light' and name == 'open':
+        # Positive gaps guarantee clearance even with the small position jitter below.
+        slots = [0.]
+        for _ in range(count-1):
+            slots.append(slots[-1] + rng.uniform(.74, 1.13))
+        offset = rng.uniform(-.8, .8) - slots[-1]/2
+        rng.shuffle(slots)
     for ident in range(count):
         if game == 'red_light':
             spacing = .75 if name == 'dense' else .9
-            x, z = (ident-(count-1)/2)*spacing, 3.2
+            x = slots[ident]+offset if name == 'open' else (ident-(count-1)/2)*spacing
+            z = 3.2
         elif name == 'cross_room':
             theta = 2*math.pi*ident/count+.1
             x, z = math.cos(theta)*2.45, .4+math.sin(theta)*2.45
@@ -188,10 +198,17 @@ def apply_scenario(world, scenario='standard', seed=0):
     # Validation above deliberately occurs before the first mutation.
     world.robot.update(spec['robot'], linear=0., angular=0., vx=0., vz=0.)
     world.obstacles = copy.deepcopy(spec['obstacles'])
+    red_light = spec['game'] == 'red_light'
+    if red_light:
+        world.game['watching'] = watching_start_line(world)
     for child, initial, behavior in zip(world.children, spec['children'], spec['behavior_types']):
         child.update(initial, home_x=initial['x'], vx=0., vz=0., behavior_type=behavior)
         child.setdefault('profile', {})['behavior_type'] = behavior
-        child['watched'] = world.robot_watching(child)
+        if red_light:
+            watched = world.game['watching']
+            child.update(watched=watched, state='stopped' if watched else 'approaching')
+        else:
+            child['watched'] = world.robot_watching(child)
     world.trail = [[world.robot['x'], world.robot['z']]]
     world.scenario = copy.deepcopy(spec)
     return copy.deepcopy(spec)

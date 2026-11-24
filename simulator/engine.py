@@ -10,6 +10,7 @@ import uuid
 from . import games, replay, scenarios
 from .contracts import MotionAction, make_observation
 from .controllers import RuleController
+from .friendly_controller import FriendlyReferee
 from .motion import integrate, validate_physics
 from . import recording as episode_recording
 
@@ -55,7 +56,9 @@ class World:
             self.action_received_tick = 0
             self.control_dt = .02
             self.metrics = dict(min_distance=None, blocked_attempts=0, near_miss_steps=0,
-                                angular_change=0., linear_change=0., max_abs_acceleration=0.,
+                                angular_change=0., linear_change=0., near_miss_seconds=0.,
+                                approach_seconds=0., watching_seconds=0., approach_progress=0., pursuit_closing_m=0.,
+                                rotation_radians=0., guard_interventions=0., max_abs_acceleration=0.,
                                 max_abs_angular_acceleration=0., samples=0, reward_total=0., administrative_stops=0, emergency_stops=0,
                                 max_emergency_deceleration=0.)
             self.frame = 0
@@ -166,23 +169,27 @@ class World:
                 self.log('Playground A 기록 재생 · 공간 맞춤 · 8× · 술래 역할/로봇 반응 없음')
             return
         with self.lock:
+            friendly = None
+            if config['gaze_timing'] == 'friendly' and execution_mode == 'realtime':
+                friendly = FriendlyReferee()
             count, rate = group_count, min(self.rate,4.0)
             self.reset()
             self.set_count(count)
             self.rate = rate
             self.game['mode'] = mode
-            games.start(self, mode, auto_chase, seed, config)
+            games.start(self, mode, auto_chase, seed, config, prepared)
             self.physics = physical
             self.serbot_sensors = serbot_sensors
             self.execution_mode = execution_mode
             self.control_dt = control_dt
             self.controller_observation_mode = observation_mode
+            if friendly is not None:
+                self.controller = friendly
             self.controller.reset(seed)
-            self.controller_name = controller_name or ('rule' if auto_chase else 'external_or_manual')
-            if prepared is not None:
-                scenarios.apply_scenario(self, prepared, seed)
-                for child, behavior in zip(self.children, prepared['behavior_types']):
-                    games.apply_behavior(child, config['child_behavior'] if config['child_behavior'] != 'mixed' else behavior)
+            self.controller_name = controller_name or (getattr(self.controller, 'name', 'rule') if auto_chase else 'external_or_manual')
+            scenarios.apply_scenario(self, prepared, seed)
+            for child, behavior in zip(self.children, prepared['behavior_types']):
+                games.apply_behavior(child, config['child_behavior'] if config['child_behavior'] != 'mixed' else behavior)
             self.episode = episode_recording.Episode(self, directory if record else None, split=split)
             self.emit('episode_start', mode=mode)
             self.episode.update(self, {})
@@ -190,7 +197,8 @@ class World:
     def emit(self, kind, actor=None, target=None, **details):
         if self.episode is not None:
             self.episode.event(self, kind, actor, target, **details)
-        labels = dict(freeze='얼음', thaw='얼음 해제', movement_detected='움직임 적발 · 탈락',
+        labels = dict(freeze='얼음', thaw='얼음 해제', movement_detected='움직임 적발',
+                      escort_complete='경기장 옆에 도착',
                       stop_response='시선에 반응해 정지', escape='출발선 도착')
         if kind in labels:
             ident = target if isinstance(target, int) else actor
@@ -351,6 +359,10 @@ class World:
 
     def controller_intent(self, controller):
         self.controller_name = getattr(controller,'name',controller.__class__.__name__)
+        if isinstance(controller, FriendlyReferee):
+            self.game['friendly_decision'] = controller.decision
+            self.game['friendly_cue_gain'] = controller.cue_gain
+            self.game['tracking_lost'] = controller.tracking_lost
         target = getattr(controller,'target_id',None)
         if target != self.game.get('target_id'):
             self.emit('target_change',actor='robot',target=target,previous=self.game.get('target_id'))
@@ -404,6 +416,7 @@ class World:
     def _advance_one(self):
         dt = .02
         was_finished = self.game['phase'] == 'finished'
+        was_pursuing = self.game['mode'] == 'red_light' and self.game['phase'] == 'escaping' and not self.game['held']
         previous = {'robot':dict(self.robot), **{c['id']:dict(c) for c in self.children}}
         action = self.training_action
         automatic = self.execution_mode == 'realtime' and self.game.get('auto_chase') and self.replay is None and self.game['phase'] not in ('ready','finished') and not self.game['held'] and self.motion is None
@@ -425,9 +438,15 @@ class World:
         self.frame += 1
         self.time = round(self.time+dt, 9)
         game_active = self.game['phase'] != 'ready'
-        if game_active:
+        # Red-light approach uses this frame's heading. A timeout still stops
+        # the robot before integrating any motion on the last tick.
+        children_after_motion = (
+            self.game['mode'] == 'red_light' and self.game['phase'] == 'approaching'
+            and self.game['elapsed'] + dt + 1e-9 < self.rules['time_limit']
+        )
+        if game_active and not children_after_motion:
             self._advance_game_children(dt)
-        else:
+        elif not game_active:
             self._idle_children(dt)
         if game_active and (self.game['held'] or self.game['phase'] == 'finished'):
             action = None
@@ -449,13 +468,24 @@ class World:
             action = action or MotionAction()
             self.requested_action = action.to_dict()
             self.last_motion_status = integrate(self, action, dt, self.physics)
-        if game_active:
+        if children_after_motion:
+            self._advance_game_children(dt)
+        elif game_active:
             self.check_touch()
         for ident, actor in [('robot',self.robot)]+[(c['id'],c) for c in self.children]:
             old = previous[ident]
             actor['vx'] = (actor['x']-old['x'])/dt
             actor['vz'] = (actor['z']-old['z'])/dt
         if not was_finished:
+            if was_pursuing:
+                # Freeze the nearest target at its previous position. A child
+                # walking past a stationary referee earns no pursuit distance.
+                old_robot = previous['robot']
+                targets = (previous[c['id']] for c in self.children if previous[c['id']]['state'] == 'escaping')
+                target = min(targets, key=lambda c: games.distance(old_robot, c), default=None)
+                if target is not None:
+                    gain = games.distance(old_robot, target) - games.distance(self.robot, target)
+                    self.metrics['pursuit_closing_m'] += max(0., gain)
             self._update_metrics(previous['robot'],dt)
         if self.episode is not None:
             self.episode.update(self,previous)
@@ -487,6 +517,18 @@ class World:
             nearest = min(distances)
             m['min_distance'] = nearest if m['min_distance'] is None else min(m['min_distance'],nearest)
             m['near_miss_steps'] += int(nearest < .8)
+            if nearest < .8:
+                m['near_miss_seconds'] += dt
+        m['rotation_radians'] += abs(games.angle(self.robot['heading'], previous['heading']))
+        if self.game['phase'] == 'approaching' and not self.game.get('escort'):
+            m['approach_seconds'] += dt
+            if self.game['watching']:
+                m['watching_seconds'] += dt
+            lane = max(.1, self.home_z-self.scenario['robot']['z'])
+            # Credit new forward progress only once; the robot cannot earn it by driving at a child.
+            for c in self.children:
+                if c['state'] in ('approaching', 'stopped'):
+                    m['approach_progress'] = max(m['approach_progress'], min(1., (self.home_z-c['z'])/lane))
         # Game end/hold/explicit stop are administrative stops, not ordinary
         # controller acceleration. Report geometric emergency braking separately.
         dv = abs(self.robot['linear']-previous['linear'])
@@ -495,6 +537,7 @@ class World:
             return
         if self.last_motion_status in ('collision','guard'):
             m['emergency_stops'] += 1
+            m['guard_interventions'] += int(self.last_motion_status == 'guard')
             m['max_emergency_deceleration'] = max(m['max_emergency_deceleration'],dv/dt)
             return
         m['linear_change'] += dv

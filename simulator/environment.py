@@ -59,6 +59,9 @@ class PlayEnv:
             raise ValueError('environment is closed; construct a new PlayEnv')
         if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 8:
             raise ValueError('count: 1..8 integer')
+        defaults = getattr(self.controller, 'default_game_settings', None)
+        if defaults and (settings is None or isinstance(settings, dict)):
+            settings = {**defaults, **(settings or {})}
         games.options(self.game, seed, settings)
         prepared = scenarios.prepare_scenario(scenario, count, seed, game=self.game)
         if not isinstance(record, bool) or split not in ('interactive','train','validation','test'):

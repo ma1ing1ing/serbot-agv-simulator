@@ -48,6 +48,15 @@
         <p>놀이실 크기에 맞춘 경로입니다. 원본 거리·시간 단위는 미확인입니다.</p>
       </div>
       <label id="auto-chase-control" class="auto-chase"><input id="auto-chase" type="checkbox" checked> 로봇 자동 제어</label>
+      <div id="gaze-options" class="game-options" hidden>
+        <label><input id="red-light-sound" type="checkbox" checked> 놀이 소리</label>
+        <label for="turn-profile">로봇 회전 방식</label>
+        <select id="turn-profile"><option value="baseline">기본 회전</option><option value="braking">감속 중심 회전</option><option value="smooth">부드러운 S자 회전</option></select>
+        <label for="gaze-timing">시선 전환 시점</label>
+        <select id="gaze-timing"><option value="timed">기본 5초 주기</option><option value="settled">회전 완료 후 기다리기</option><option value="friendly">친화형 술래 · 학습 모델</option></select>
+        <label for="stop-reaction">정지 후 판정</label>
+        <select id="stop-reaction"><option value="immediate">모두 즉시 정지</option><option value="delayed">움직임 적발 · 데려가기</option></select>
+      </div>
       <div id="game-options" class="game-options"><label for="child-behavior">아이들 행동 유형</label><select id="child-behavior"><option value="mixed">혼합</option><option value="cautious">조심스러움</option><option value="playful">활발함</option><option value="helper">친구 구조 선호</option></select><label>난수 시드 <input id="game-seed" type="number" min="0" max="4294967295" step="1" value="0"></label><label>제한 시간(초) <input id="game-limit" type="number" min="1" max="3600" value="120"></label><label><input id="game-record" type="checkbox"> 플레이 기록 저장</label><p id="record-status" role="status">기록 저장을 켜면 플레이를 파일로 남깁니다.</p><button id="game-finish" disabled>게임 종료</button></div>
       <div id="game-card" class="game-card" data-phase="ready"><span id="game-stage">게임 대기</span><strong id="game-title">로봇 술래를 피해 도망가요</strong><p id="game-detail">가까우면 달리고, 멀어지면 천천히 걸어요. 벽과 다른 아이를 피해 방향을 바꿉니다.</p><div class="game-steps"><span data-step="approaching">① 도망가기</span><b>→</b><span data-step="escaping">② 가까우면 잡힘</span><b>→</b><span data-step="finished">③ 모두 잡으면 끝</span></div></div>
       <div class="bulk-actions game-actions"><button id="game-start">게임 시작</button><button id="game-hold" disabled>접근 잠깐 멈춤</button></div>

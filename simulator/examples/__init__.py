@@ -1,1 +1,1 @@
-"""Examples of camera and sensor I/O; no AI model is included."""
+"""Examples of camera, sensor, controller, and referee-model integration."""
